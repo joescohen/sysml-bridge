@@ -1,5 +1,6 @@
 import type {
   SmapsProject,
+  SmapsDataVersion,
   SmapsCommitRequest,
   SmapsCommitResponse,
   SmapsElementResponse,
@@ -102,7 +103,8 @@ export class SmapsClient {
         payload: { "@type": type, name, ...attributes },
       },
     ]);
-    return this._elementFromCommitChange(commit, 0);
+    const changes = await this._fetchCommitChanges(commit["@id"]);
+    return this._toSysmlElement(changes[0].payload as SmapsElementResponse);
   }
 
   /** Batch-create multiple elements in a single commit. */
@@ -115,7 +117,10 @@ export class SmapsClient {
       payload: { "@type": el.type, name: el.name, ...(el.attributes ?? {}) },
     }));
     const commit = await this._postCommit(changes);
-    return commit.change.map((_, i) => this._elementFromCommitChange(commit, i));
+    const committed = await this._fetchCommitChanges(commit["@id"]);
+    return committed.map((c) =>
+      this._toSysmlElement(c.payload as SmapsElementResponse)
+    );
   }
 
   /** Update an existing element via a commit with identity set. */
@@ -125,7 +130,6 @@ export class SmapsClient {
   ): Promise<SysmlElement> {
     this.assertInitialized();
 
-    // Fetch current element to merge updates on top
     const current = await this.getElement(elementId);
 
     const commit = await this._postCommit([
@@ -140,7 +144,8 @@ export class SmapsClient {
         },
       },
     ]);
-    return this._elementFromCommitChange(commit, 0);
+    const changes = await this._fetchCommitChanges(commit["@id"]);
+    return this._toSysmlElement(changes[0].payload as SmapsElementResponse);
   }
 
   /** Delete an element via a commit with null payload. */
@@ -294,7 +299,7 @@ export class SmapsClient {
   // -------------------------------------------------------------------------
 
   private assertInitialized(): void {
-    if (!this.projectId || !this.branchId || this.headCommitId === null) {
+    if (!this.projectId || !this.branchId) {
       throw new Error(
         "SmapsClient not initialized — call createProject() or loadProject() first"
       );
@@ -325,14 +330,16 @@ export class SmapsClient {
     return commit;
   }
 
-  /** Extract element from a specific change slot in a commit response. */
-  private _elementFromCommitChange(
-    commit: SmapsCommitResponse,
-    index: number
-  ): SysmlElement {
-    const change = commit.change[index];
-    const payload = change?.payload ?? {};
-    return this._toSysmlElement(payload as SmapsElementResponse);
+  /** Fetch the DataVersion changes for a commit (the API doesn't inline them). */
+  private async _fetchCommitChanges(
+    commitId: string
+  ): Promise<SmapsDataVersion[]> {
+    const url = `${this.endpoint}/projects/${this.projectId!}/commits/${commitId}/changes`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch commit changes: ${res.statusText}`);
+    }
+    return (await res.json()) as SmapsDataVersion[];
   }
 
   /** Load project IDs from a SmapsProject response. */
@@ -351,7 +358,7 @@ export class SmapsClient {
       throw new Error(`Failed to fetch branch: ${res.statusText}`);
     }
     const branch = (await res.json()) as SmapsBranch;
-    this.headCommitId = branch.head["@id"];
+    this.headCommitId = branch.head?.["@id"] ?? null;
   }
 
   private _toSysmlElement(data: SmapsElementResponse): SysmlElement {

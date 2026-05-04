@@ -220,6 +220,7 @@ describe("SmapsClient", () => {
         { ok: true, body: FAKE_PROJECT },         // loadProject GET
         { ok: true, body: FAKE_BRANCH },          // loadProject branch GET
         { ok: true, body: FAKE_COMMIT_RESPONSE }, // createElement POST
+        { ok: true, body: FAKE_COMMIT_RESPONSE.change }, // fetchCommitChanges GET
       ]);
       const client = await buildInitializedClient(fetch);
 
@@ -252,6 +253,7 @@ describe("SmapsClient", () => {
         { ok: true, body: FAKE_PROJECT },
         { ok: true, body: FAKE_BRANCH },
         { ok: true, body: FAKE_COMMIT_RESPONSE },
+        { ok: true, body: FAKE_COMMIT_RESPONSE.change },
       ]);
       const client = await buildInitializedClient(fetch);
 
@@ -310,6 +312,7 @@ describe("SmapsClient", () => {
         { ok: true, body: FAKE_PROJECT },
         { ok: true, body: FAKE_BRANCH },
         { ok: true, body: batchCommitResponse },
+        { ok: true, body: batchCommitResponse.change },
       ]);
       const client = await buildInitializedClient(fetch);
 
@@ -356,6 +359,7 @@ describe("SmapsClient", () => {
         { ok: true, body: FAKE_BRANCH },
         { ok: true, body: FAKE_ELEMENT_RESPONSE },          // getElement
         { ok: true, body: updateCommitResponse },            // updateElement commit
+        { ok: true, body: updateCommitResponse.change },    // fetchCommitChanges
       ]);
       const client = await buildInitializedClient(fetch);
 

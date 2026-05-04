@@ -1,0 +1,59 @@
+---
+title: DroneSystem — Block Definition Diagram
+---
+classDiagram
+    class Drone {
+        <<part def>>
+    }
+    class Airframe {
+        <<part def>>
+    }
+    class PropulsionSystem {
+        <<part def>>
+    }
+    class Avionics {
+        <<part def>>
+    }
+    class PayloadBay {
+        <<part def>>
+    }
+    class BrushlessMotor {
+        <<part def>>
+    }
+    class LiPoBattery {
+        <<part def>>
+    }
+    class FlightController {
+        <<part def>>
+    }
+    class GPSModule {
+        <<part def>>
+    }
+    class MaxTakeoffWeight {
+        <<requirement def>>
+        id: SYS-001
+        text: Max takeoff weight ≤ 25 kg
+    }
+    class FlightEndurance {
+        <<requirement def>>
+        id: SYS-002
+        text: Flight time ≥ 30 min
+    }
+    class OperationalRange {
+        <<requirement def>>
+        id: SYS-003
+        text: Range ≥ 5 km
+    }
+
+    Drone *-- Airframe : airframe
+    Drone *-- PropulsionSystem : propulsion
+    Drone *-- Avionics : avionics
+    Drone *-- PayloadBay : payloadBay
+    PropulsionSystem *-- BrushlessMotor : motor
+    PropulsionSystem *-- LiPoBattery : battery
+    Avionics *-- FlightController : flightController
+    Avionics *-- GPSModule : gps
+
+    MaxTakeoffWeight <.. Drone : «satisfy»
+    FlightEndurance <.. PropulsionSystem : «satisfy»
+    OperationalRange <.. Avionics : «satisfy»
