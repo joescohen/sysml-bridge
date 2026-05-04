@@ -9,7 +9,7 @@ import { SysMLBlockNode } from './sysml/SysMLBlockNode';
 import { SysMLEdge } from './sysml/SysMLEdge';
 import { transformToIBD, type SysMLBlockNodeData } from '../lib/ibd-transformer';
 import { applyELKLayout } from '../lib/ibd-layout';
-import { getElements, getLocalElements } from '../lib/api';
+import { getElements } from '../lib/api';
 
 type SysMLNode = Node<SysMLBlockNodeData>;
 
@@ -26,11 +26,8 @@ export function IBDViewer({ projectId }: IBDViewerProps) {
 
   const load = useCallback(async () => {
     try {
-      const [smapsElements, localElements] = await Promise.all([
-        getElements(projectId),
-        getLocalElements(projectId),
-      ]);
-      const { nodes: rawNodes, edges: rawEdges } = transformToIBD(smapsElements, localElements);
+      const elements = await getElements(projectId);
+      const { nodes: rawNodes, edges: rawEdges } = transformToIBD(elements);
       const laidOut = await applyELKLayout(rawNodes, rawEdges);
       setNodes(laidOut);
       setEdges(rawEdges);
