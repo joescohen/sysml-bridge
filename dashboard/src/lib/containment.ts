@@ -5,8 +5,19 @@ export interface TreeNode {
   children: TreeNode[];
 }
 
-function isMembership(type: string): boolean {
-  return type.endsWith('Membership');
+const HIDDEN_TYPES = new Set([
+  'MembershipExpose',
+  'FeatureTyping',
+  'Subsetting',
+  'Redefinition',
+  'ReferenceSubsetting',
+  'FeatureInverting',
+  'TypeFeaturing',
+  'ConjugatedPortDefinition',
+]);
+
+function isHidden(type: string): boolean {
+  return type.endsWith('Membership') || HIDDEN_TYPES.has(type);
 }
 
 export function buildContainmentTree(elements: SysONElement[]): TreeNode[] {
@@ -22,11 +33,11 @@ export function buildContainmentTree(elements: SysONElement[]): TreeNode[] {
   }
 
   function buildNode(el: SysONElement): TreeNode | null {
-    if (isMembership(el['@type'])) return null;
+    if (isHidden(el['@type'])) return null;
     const directChildren = childrenOf.get(el['@id']) ?? [];
     const logicalChildren: TreeNode[] = [];
     for (const child of directChildren) {
-      if (isMembership(child['@type'])) {
+      if (isHidden(child['@type'])) {
         const grandchildren = childrenOf.get(child['@id']) ?? [];
         for (const gc of grandchildren) {
           const node = buildNode(gc);
@@ -43,7 +54,7 @@ export function buildContainmentTree(elements: SysONElement[]): TreeNode[] {
   const roots: TreeNode[] = [];
   for (const el of elements) {
     if (el.owner === null || el.owner === undefined) {
-      if (!isMembership(el['@type'])) {
+      if (!isHidden(el['@type'])) {
         const node = buildNode(el);
         if (node) roots.push(node);
       }
@@ -53,7 +64,7 @@ export function buildContainmentTree(elements: SysONElement[]): TreeNode[] {
   if (roots.length === 0) {
     for (const el of elements) {
       const ownerId = el.owner?.['@id'];
-      if (ownerId && !byId.has(ownerId) && !isMembership(el['@type'])) {
+      if (ownerId && !byId.has(ownerId) && !isHidden(el['@type'])) {
         const node = buildNode(el);
         if (node) roots.push(node);
       }

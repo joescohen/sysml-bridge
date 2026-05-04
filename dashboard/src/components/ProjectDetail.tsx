@@ -53,35 +53,41 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
         <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--text4)', marginTop: 3 }}>{project['@id'].slice(0, 8)}…</div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 22 }}>
-        {[
-          { label: 'Elements', value: nonMembership.length, sub: 'in SysON' },
-          { label: 'Types', value: Object.keys(typeCounts).length, sub: 'unique @types' },
-          { label: 'Roots', value: roots.length, sub: 'root nodes' },
-        ].map(s => (
-          <div key={s.label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 14 }}>
-            <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>{s.label}</div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: '#f1f5f9' }}>{s.value}</div>
-            <div style={{ fontSize: 10, color: 'var(--text4)', marginTop: 3, fontFamily: 'monospace' }}>{s.sub}</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 10 }}>Element Types</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 7, marginBottom: 22 }}>
-        {Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
-          <div key={type} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: 'var(--text2)', fontSize: 11 }}>{type}</span>
-            <span style={{ color: 'var(--primary-text)', fontWeight: 700, fontFamily: 'monospace', fontSize: 11 }}>{count}</span>
-          </div>
-        ))}
-      </div>
-
       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 10 }}>Diagrams</div>
       <DiagramPanel projectId={project['@id']} elements={elements} refreshKey={refreshKey} />
 
       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 10 }}>Containment Tree</div>
       <ContainmentTree roots={roots} />
+
+      <details style={{ marginTop: 22 }}>
+        <summary style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text3)', cursor: 'pointer', userSelect: 'none', marginBottom: 10 }}>
+          Model Stats
+        </summary>
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
+            {[
+              { label: 'Elements', value: nonMembership.length, sub: 'in SysON' },
+              { label: 'Types', value: Object.keys(typeCounts).length, sub: 'unique @types' },
+              { label: 'Roots', value: roots.length, sub: 'root nodes' },
+            ].map(s => (
+              <div key={s.label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 14 }}>
+                <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>{s.label}</div>
+                <div style={{ fontSize: 26, fontWeight: 700, color: '#f1f5f9' }}>{s.value}</div>
+                <div style={{ fontSize: 10, color: 'var(--text4)', marginTop: 3, fontFamily: 'monospace' }}>{s.sub}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 8 }}>Element Types</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 7 }}>
+            {Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
+              <div key={type} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text2)', fontSize: 11 }}>{type}</span>
+                <span style={{ color: 'var(--primary-text)', fontWeight: 700, fontFamily: 'monospace', fontSize: 11 }}>{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </details>
     </div>
   );
 }
