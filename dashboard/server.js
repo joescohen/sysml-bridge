@@ -252,6 +252,43 @@ async function executeTool(name, input, projectId) {
       );
       const rep = result.createRepresentation;
       if (rep.__typename === 'ErrorPayload') return { error: rep.message };
+      const repId = rep.representation.id;
+
+      // Auto-populate: find elements whose logical owner (first non-Membership ancestor) is element_id
+      try {
+        const allElements = await getAllElements(projectId);
+        const byId = new Map(allElements.map(e => [e['@id'], e]));
+        const SKIP_TYPES = new Set(['FeatureTyping','Subsetting','Redefinition','ReferenceSubsetting','MembershipExpose','FeatureInverting','TypeFeaturing']);
+
+        function logicalOwner(el) {
+          let cur = el.owner?.['@id'];
+          const seen = new Set();
+          while (cur) {
+            if (seen.has(cur)) return undefined;
+            seen.add(cur);
+            const owner = byId.get(cur);
+            if (!owner) return undefined;
+            if (!owner['@type'].endsWith('Membership')) return owner['@id'];
+            cur = owner.owner?.['@id'];
+          }
+          return undefined;
+        }
+
+        const toDrop = allElements
+          .filter(e => !e['@type'].endsWith('Membership') && !SKIP_TYPES.has(e['@type']))
+          .filter(e => logicalOwner(e) === input.element_id)
+          .map(e => e['@id']);
+
+        if (toDrop.length) {
+          await sysonGql(
+            `mutation($input: DropOnDiagramInput!) { dropOnDiagram(input: $input) { __typename ... on DropOnDiagramSuccessPayload { diagram { id } } ... on ErrorPayload { message } } }`,
+            { input: { id: randomUUID(), editingContextId: ecId, representationId: repId, diagramTargetElementId: repId, objectIds: toDrop, startingPositionX: 50, startingPositionY: 50 } },
+          );
+        }
+      } catch (dropErr) {
+        console.error('dropOnDiagram failed (non-fatal):', dropErr.message);
+      }
+
       return { success: true, representation: rep.representation };
     }
 

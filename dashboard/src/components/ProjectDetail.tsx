@@ -16,18 +16,19 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const projectId = project['@id'];
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setElements(await getElements(project['@id']));
+      setElements(await getElements(projectId));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load elements');
       setElements([]);
     } finally {
       setLoading(false);
     }
-  }, [project]);
+  }, [projectId]);
 
   useEffect(() => { load(); }, [load, refreshKey]);
 
