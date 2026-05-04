@@ -14,8 +14,11 @@ export interface SysMLBlockNodeData extends Record<string, unknown> {
 }
 
 function resolveLogicalOwner(el: SysONElement, byId: Map<string, SysONElement>): string | undefined {
+  const visited = new Set<string>();
   let current = el.owner?.['@id'];
   while (current) {
+    if (visited.has(current)) return undefined;
+    visited.add(current);
     const owner = byId.get(current);
     if (!owner) return undefined;
     if (!owner['@type'].endsWith('Membership')) return owner['@id'];

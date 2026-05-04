@@ -89,4 +89,30 @@ describe('transformToIBD', () => {
     const { nodes } = transformToIBD([BLOCK_A] as any);
     expect(nodes[0].type).toBe('sysmlBlock');
   });
+
+  it('drops edge when port owner is not a known block', () => {
+    const orphanBlock: SysONElement = {
+      '@id': 'orphan', '@type': 'PartDefinition', declaredName: 'Orphan',
+      ownedElement: [], owner: { '@id': 'unknown-pkg' },
+    };
+    const orphanMem: SysONElement = {
+      '@id': 'orphan-mem', '@type': 'OwningMembership', declaredName: null,
+      ownedElement: [{ '@id': 'orphan-port' }], owner: { '@id': 'orphan' },
+    };
+    const orphanPort: SysONElement = {
+      '@id': 'orphan-port', '@type': 'PortUsage', declaredName: 'p',
+      ownedElement: [], owner: { '@id': 'orphan-mem' },
+    };
+    const badConn: SysONElement = {
+      '@id': 'bad-conn', '@type': 'ConnectionUsage', declaredName: 'bad',
+      ownedElement: [], owner: { '@id': 'orphan-mem' },
+      connectorEnd: [
+        { '@type': 'ConnectorEnd', connectedFeature: { '@id': 'orphan-port' } },
+        { '@type': 'ConnectorEnd', connectedFeature: { '@id': 'nonexistent-port' } },
+      ],
+    } as SysONElement & { connectorEnd: Array<{ '@type': string; connectedFeature: { '@id': string } }> };
+
+    const { edges } = transformToIBD([orphanBlock, orphanMem, orphanPort, badConn] as any);
+    expect(edges).toHaveLength(0);
+  });
 });
