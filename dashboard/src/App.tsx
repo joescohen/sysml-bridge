@@ -57,7 +57,7 @@ export function App() {
         <div style={{ width: 7, height: 7, borderRadius: '50%', background: smapsOnline ? 'var(--green)' : 'var(--red)', flexShrink: 0, transition: 'background 0.3s' }} />
         <h1 style={{ fontSize: 14, fontWeight: 600, color: '#f1f5f9', letterSpacing: '0.02em' }}>sysml-bridge</h1>
         <span style={{ color: 'var(--border2)' }}>·</span>
-        <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'monospace' }}>localhost:9000</span>
+        <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'monospace' }}>SysON :8080</span>
         <div style={{ flex: 1 }} />
         <button onClick={loadProjects} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border2)', background: 'transparent', color: 'var(--text3)', fontSize: 11, cursor: 'pointer' }}>↻ refresh</button>
       </header>
@@ -87,7 +87,7 @@ export function App() {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                     <div>
                       <div style={{ fontSize: 18, fontWeight: 700, color: '#f1f5f9' }}>Your Models</div>
-                      <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>SysML v2 projects in SMAPS</div>
+                      <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>SysML v2 projects in SysON</div>
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>

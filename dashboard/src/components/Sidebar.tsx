@@ -73,7 +73,7 @@ export function Sidebar({ projects, currentProjectId, onSelect, onProjectsChange
         <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={() => setShowModal(false)}>
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 12, padding: 24, width: 340, maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', marginBottom: 6 }}>New SysML Project</div>
-            <div style={{ fontSize: 11.5, color: 'var(--text3)', marginBottom: 18, lineHeight: 1.5 }}>Creates a new project in the SMAPS repository.</div>
+            <div style={{ fontSize: 11.5, color: 'var(--text3)', marginBottom: 18, lineHeight: 1.5 }}>Creates a new SysML v2 project in SysON.</div>
             <input
               style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border2)', borderRadius: 8, padding: '9px 12px', color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', outline: 'none', marginBottom: 14, display: 'block' }}
               placeholder="Project name, e.g. DroneSystem"

@@ -29,10 +29,12 @@ function saveConvs(c: Record<string, Conversation[]>) {
 }
 
 const TOOL_LABELS: Record<string, string> = {
-  query_elements: 'Queried elements', create_element: 'Created element',
-  create_local_element: 'Created local element', query_local_elements: 'Queried local elements',
-  delete_local_element: 'Deleted local element', render_diagram: 'Rendered diagram',
-  export_sysml: 'Exported SysML', create_project: 'Created project',
+  query_elements: 'Queried elements',
+  create_element: 'Created element',
+  delete_element: 'Deleted element',
+  create_diagram: 'Created diagram',
+  export_sysml: 'Exported SysML',
+  create_project: 'Created project',
 };
 
 function escHtml(s: string) {
@@ -171,9 +173,8 @@ export function ChatPanel({ project, onModelChanged }: ChatPanelProps) {
         messages: [...c.messages, { role: 'assistant', content: accText, tools: [...tools] }],
       }));
 
-      const mutating = ['create_element', 'create_project', 'create_local_element', 'delete_local_element'];
-      if (tools.some(t => mutating.includes(t.name) && t.status === 'done') ||
-          tools.some(t => t.name === 'render_diagram' && t.status === 'done')) {
+      const mutating = ['create_element', 'create_project', 'delete_element', 'create_diagram'];
+      if (tools.some(t => mutating.includes(t.name) && t.status === 'done')) {
         onModelChanged();
       }
     } catch (err) {
@@ -267,7 +268,7 @@ export function ChatPanel({ project, onModelChanged }: ChatPanelProps) {
             <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.6 }}>Ask me to query, create, or analyze your SysML model.</div>
             {pid && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', marginTop: 4 }}>
-                {['List all elements in this project', 'Add a new PartDefinition called Sensor', 'Export this model as SysML v2 text'].map(q => (
+                {['List all elements in this project', 'Create a PartDefinition called Sensor', 'Create a General View diagram for this project'].map(q => (
                   <button key={q} onClick={() => sendMessage(q)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', fontSize: 11, cursor: 'pointer', textAlign: 'left' }}>
                     {q}
                   </button>
