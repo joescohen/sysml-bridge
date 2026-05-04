@@ -1,4 +1,4 @@
-import type { SmapsElement, LocalElement, Project, StoredDiagram } from '../types/sysml';
+import type { SysONElement, Project, Representation } from '../types/sysml';
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(path, opts);
@@ -14,7 +14,7 @@ export function createProject(name: string): Promise<Project> {
   return apiFetch('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ '@type': 'Project', name }),
+    body: JSON.stringify({ name }),
   });
 }
 
@@ -22,22 +22,10 @@ export function deleteProject(id: string): Promise<unknown> {
   return apiFetch(`/api/projects/${id}`, { method: 'DELETE' });
 }
 
-export function getElements(projectId: string): Promise<SmapsElement[]> {
+export function getElements(projectId: string): Promise<SysONElement[]> {
   return apiFetch(`/api/projects/${projectId}/elements`);
 }
 
-export function getLocalElements(projectId: string): Promise<LocalElement[]> {
-  return apiFetch(`/api/projects/${projectId}/local-elements`);
-}
-
-export function deleteLocalElement(projectId: string, elementId: string): Promise<unknown> {
-  return apiFetch(`/api/projects/${projectId}/local-elements/${elementId}`, { method: 'DELETE' });
-}
-
-export function getDiagrams(projectId: string): Promise<StoredDiagram[]> {
-  return apiFetch(`/api/projects/${projectId}/diagrams`);
-}
-
-export function deleteDiagram(projectId: string, idx: number): Promise<unknown> {
-  return apiFetch(`/api/projects/${projectId}/diagrams/${idx}`, { method: 'DELETE' });
+export function getRepresentations(projectId: string): Promise<Representation[]> {
+  return apiFetch(`/api/projects/${projectId}/representations`);
 }
