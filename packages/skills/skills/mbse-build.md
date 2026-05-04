@@ -49,6 +49,19 @@ Build parametric/constraint diagrams — constraint definitions, analysis bindin
 - Generate ConstraintDefinition elements for analysis equations
 - Bind constraint parameters to block attributes
 
+### Keyword Reference
+
+SysML v2 textual keywords used by build subcommands:
+
+| Subcommand | SysML v2 Keywords |
+|---|---|
+| bdd | `part def`, `part`, `:>` (specialization) |
+| ibd | `part`, `port def`, `port`, `connection`, `interface`, `flow` |
+| activity | `action def`, `action`, `first...then`, `flow` |
+| sequence | `action def`, `action`, `accept`, `send` |
+| state | `state def`, `state`, `transition`, `entry`, `do`, `exit` |
+| parametric | `constraint def`, `constraint`, `calc def`, `attribute` |
+
 ## Common Workflow
 
 1. **Read session state** — know what phase we're in, what exists.
