@@ -41,6 +41,10 @@ async function sysonGql(query, variables = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables }),
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`SysON GraphQL → ${res.status}: ${text}`);
+  }
   const json = await res.json();
   if (json.errors?.length) throw new Error(json.errors[0].message);
   return json.data;
@@ -52,6 +56,10 @@ async function sysonRestCommit(projectId, changes) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ '@type': 'Commit', change: changes }),
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`SysON commit → ${res.status}: ${text}`);
+  }
   return res.json();
 }
 
@@ -421,10 +429,11 @@ app.post('/api/projects', async (req, res) => {
 
 app.delete('/api/projects/:id', async (req, res) => {
   try {
-    await sysonGql(
+    const result = await sysonGql(
       `mutation($input: DeleteProjectInput!) { deleteProject(input: $input) { __typename ... on ErrorPayload { message } } }`,
       { input: { id: randomUUID(), projectId: req.params.id } },
     );
+    if (result.deleteProject.__typename === 'ErrorPayload') throw new Error(result.deleteProject.message);
     ecCache.delete(req.params.id);
     res.json({ ok: true });
   } catch (e) { res.status(502).json({ error: e.message }); }

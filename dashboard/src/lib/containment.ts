@@ -51,7 +51,6 @@ export function buildContainmentTree(elements: SysONElement[]): TreeNode[] {
   }
 
   if (roots.length === 0) {
-    const hasOwner = new Set(elements.filter(e => e.owner).map(e => e['@id']));
     for (const el of elements) {
       const ownerId = el.owner?.['@id'];
       if (ownerId && !byId.has(ownerId) && !isMembership(el['@type'])) {
