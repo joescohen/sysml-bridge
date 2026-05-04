@@ -1,21 +1,11 @@
-export interface SmapsElement {
+export interface SysONElement {
   '@id': string;
   '@type': string;
-  declaredName?: string;
-  declaredShortName?: string;
-  name?: string;
-}
-
-export interface ConnectorEnd {
-  '@type': 'ConnectorEnd';
-  connectedFeature: { '@id': string };
-}
-
-export interface LocalElement extends SmapsElement {
-  _local: true;
-  owner?: { '@id': string };
-  type?: Array<{ '@id': string }>;
-  connectorEnd?: ConnectorEnd[];
+  declaredName?: string | null;
+  declaredShortName?: string | null;
+  name?: string | null;
+  ownedElement?: Array<{ '@id': string }>;
+  owner?: { '@id': string } | null;
 }
 
 export interface Project {
@@ -23,9 +13,8 @@ export interface Project {
   name: string;
 }
 
-export interface StoredDiagram {
-  type: string;
-  title: string;
-  mermaid: string;
-  updatedAt: string;
+export interface Representation {
+  id: string;
+  label: string;
+  kind: string;
 }
