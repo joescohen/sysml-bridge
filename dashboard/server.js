@@ -2,10 +2,9 @@ import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { randomUUID } from 'crypto';
 
-// Load .env from project root if present
 const __root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const envPath = join(__root, '.env');
 if (existsSync(envPath)) {
@@ -16,86 +15,68 @@ if (existsSync(envPath)) {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR  = join(__dirname, 'data');
-if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 
 const app  = express();
 const PORT = parseInt(process.env.PORT ?? '6121', 10);
-const SMAPS = process.env.SMAPS_ENDPOINT ?? 'http://localhost:9000';
+const SYSON = process.env.SYSON_ENDPOINT ?? 'http://localhost:8080';
+const SYSON_GQL = `${SYSON}/api/graphql`;
 
 app.use(express.json());
 app.use(express.static(join(__dirname, 'dist')));
 
-// ── Diagram store (persisted per project in data/<id>.json) ──────────────────
+// ── SysON helpers ────────────────────────────────────────────────────────────
 
-function loadProjectData(projectId) {
-  const f = join(DATA_DIR, `${projectId}.json`);
-  try { return JSON.parse(readFileSync(f, 'utf8')); } catch { return { diagrams: [] }; }
-}
-
-function saveProjectData(projectId, data) {
-  writeFileSync(join(DATA_DIR, `${projectId}.json`), JSON.stringify(data, null, 2));
-}
-
-function loadLocalElements(projectId) {
-  return loadProjectData(projectId).localElements ?? [];
-}
-
-function saveLocalElement(projectId, element) {
-  const data = loadProjectData(projectId);
-  if (!data.localElements) data.localElements = [];
-  const idx = data.localElements.findIndex(e => e['@id'] === element['@id']);
-  if (idx >= 0) data.localElements[idx] = element;
-  else data.localElements.push(element);
-  saveProjectData(projectId, data);
-  return element;
-}
-
-function deleteLocalElement(projectId, elementId) {
-  const data = loadProjectData(projectId);
-  data.localElements = (data.localElements ?? []).filter(e => e['@id'] !== elementId);
-  saveProjectData(projectId, data);
-}
-
-// ── SMAPS helpers ─────────────────────────────────────────────────────────────
-
-async function smapsFetch(path, method = 'GET', body = null) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
-  if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(`${SMAPS}${path}`, opts);
+async function sysonRest(path) {
+  const res = await fetch(`${SYSON}/api/rest${path}`);
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-    throw new Error(`SMAPS ${method} ${path} → ${res.status}: ${text}`);
+    throw new Error(`SysON REST ${path} → ${res.status}: ${text}`);
   }
   return res.json();
 }
 
+async function sysonGql(query, variables = {}) {
+  const res = await fetch(SYSON_GQL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables }),
+  });
+  const json = await res.json();
+  if (json.errors?.length) throw new Error(json.errors[0].message);
+  return json.data;
+}
+
+async function sysonRestCommit(projectId, changes) {
+  const res = await fetch(`${SYSON}/api/rest/projects/${projectId}/commits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ '@type': 'Commit', change: changes }),
+  });
+  return res.json();
+}
+
+const ecCache = new Map();
+
+async function getEditingContextId(projectId) {
+  if (ecCache.has(projectId)) return ecCache.get(projectId);
+  const data = await sysonGql(
+    `query($pid: ID!) { viewer { project(projectId: $pid) { currentEditingContext { id } } } }`,
+    { pid: projectId },
+  );
+  const ecId = data.viewer.project.currentEditingContext.id;
+  ecCache.set(projectId, ecId);
+  return ecId;
+}
+
 async function getHeadCommitId(projectId) {
-  const commits = await smapsFetch(`/projects/${projectId}/commits`).catch(() => []);
+  const commits = await sysonRest(`/projects/${projectId}/commits`).catch(() => []);
   return commits[0]?.['@id'] ?? null;
 }
 
-async function queryElements(projectId) {
-  const headId = await getHeadCommitId(projectId);
-  if (!headId) return [];
-  const res = await fetch(`${SMAPS}/projects/${projectId}/query-results?commitId=${headId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ '@type': 'Query' }),
-  });
-  return res.ok ? res.json() : [];
-}
-
-async function createCommit(projectId, elementData) {
-  const headId = await getHeadCommitId(projectId);
-  const payload = {
-    '@type': 'Commit',
-    change: [{ '@type': 'DataVersion', payload: elementData }],
-  };
-  if (headId) payload.previousCommit = [{ '@id': headId }];
-  const commit = await smapsFetch(`/projects/${projectId}/commits`, 'POST', payload);
-  const changes = await smapsFetch(`/projects/${projectId}/commits/${commit['@id']}/changes`);
-  return { commit, element: changes[0]?.payload };
+async function getAllElements(projectId) {
+  const commitId = await getHeadCommitId(projectId);
+  if (!commitId) return [];
+  return sysonRest(`/projects/${projectId}/commits/${commitId}/elements`);
 }
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
@@ -103,53 +84,54 @@ async function createCommit(projectId, elementData) {
 const TOOLS = [
   {
     name: 'query_elements',
-    description: 'Query all SysML elements in the current project. Optionally filter by type.',
+    description: 'Query all SysML v2 elements in the current project. Returns the full containment hierarchy from SysON. Optionally filter by @type.',
     input_schema: {
       type: 'object',
       properties: {
         type_filter: {
           type: 'string',
-          description: 'Filter by SysML type: PartDefinition or RequirementDefinition',
+          description: 'Filter by SysML v2 @type, e.g. PartDefinition, PortUsage, ActionDefinition, RequirementDefinition, etc.',
         },
       },
     },
   },
   {
     name: 'create_element',
-    description: 'Create a new SysML element. IMPORTANT: Only PartDefinition and RequirementDefinition are supported by this SMAPS API version. Do NOT attempt other types.',
+    description: 'Create a new SysML v2 element under a parent container in SysON. The server queries SysON for valid child types under the parent and creates the element. Works with ALL SysML v2 types — PartDefinition, PortUsage, ActionDefinition, RequirementDefinition, ConnectionUsage, StateUsage, etc.',
     input_schema: {
       type: 'object',
-      required: ['element_type', 'name'],
+      required: ['element_type', 'name', 'parent_id'],
       properties: {
         element_type: {
           type: 'string',
-          enum: ['PartDefinition', 'RequirementDefinition'],
-          description: 'Must be PartDefinition or RequirementDefinition — those are the only types this API supports.',
+          description: 'Human-readable element type label as shown in SysON, e.g. "Part Definition", "Port", "Action", "Requirement", "Connection", "State", "Item", "Interface", "Flow Usage", "Attribute"',
         },
-        name: { type: 'string', description: 'Declared name of the element' },
-        short_name: { type: 'string', description: 'Short ID, e.g. SYS-004' },
+        name: { type: 'string', description: 'Declared name for the element' },
+        parent_id: { type: 'string', description: '@id of the parent container element. Use the Package ID for top-level elements, or a PartDefinition ID for ports/parts/etc.' },
       },
     },
   },
   {
-    name: 'render_diagram',
-    description: 'Render and save a Mermaid diagram for this project (IBD, BDD, activity, sequence, state, etc). The diagram is stored and displayed in the dashboard. Use Mermaid syntax — graph TD/LR for IBDs, classDiagram for BDDs, sequenceDiagram, stateDiagram-v2, etc.',
+    name: 'delete_element',
+    description: 'Delete a SysML v2 element from the SysON model by its @id.',
     input_schema: {
       type: 'object',
-      required: ['diagram_type', 'title', 'mermaid_code'],
+      required: ['element_id'],
       properties: {
-        diagram_type: {
-          type: 'string',
-          description: 'Type label shown in the dashboard, e.g. "IBD", "BDD", "Activity", "Sequence", "State"',
-        },
-        title: {
-          type: 'string',
-          description: 'Human-readable title for this diagram, e.g. "Drone [ibd]"',
-        },
-        mermaid_code: {
-          type: 'string',
-          description: 'Complete valid Mermaid diagram code. For IBDs use graph TD or LR with subgraph for the container block and labelled arrows for connectors. Must be renderable by Mermaid v11.',
-        },
+        element_id: { type: 'string', description: 'The @id of the element to delete' },
+      },
+    },
+  },
+  {
+    name: 'create_diagram',
+    description: 'Create a SysON diagram view for a model element. Returns the representation ID so it can be displayed in the dashboard. Available types: "General View", "Interconnection View", "State Transition View", "Requirements Table View".',
+    input_schema: {
+      type: 'object',
+      required: ['element_id', 'diagram_type', 'name'],
+      properties: {
+        element_id: { type: 'string', description: '@id of the element to create the diagram for' },
+        diagram_type: { type: 'string', description: 'Diagram type label, e.g. "General View", "Interconnection View"' },
+        name: { type: 'string', description: 'Name for the diagram' },
       },
     },
   },
@@ -160,52 +142,11 @@ const TOOLS = [
   },
   {
     name: 'create_project',
-    description: 'Create a new SysML project in the SMAPS repository.',
+    description: 'Create a new SysML v2 project in SysON.',
     input_schema: {
       type: 'object',
       required: ['name'],
       properties: { name: { type: 'string', description: 'Project name' } },
-    },
-  },
-  {
-    name: 'create_local_element',
-    description: 'Create a SysML v2 element stored locally in the dashboard (not sent to SMAPS). Use this for any type SMAPS does not support: ProxyPortDefinition, ProxyPortUsage, PartUsage, ConnectionUsage, ConnectionDefinition, InterfaceDefinition, InterfaceUsage, etc. Local elements appear in the All Elements table and can be referenced by their @id in other local elements.',
-    input_schema: {
-      type: 'object',
-      required: ['element_type', 'name'],
-      properties: {
-        element_type: {
-          type: 'string',
-          description: 'SysML v2 @type — e.g. ProxyPortDefinition, ProxyPortUsage, PartUsage, ConnectionUsage, ConnectionDefinition, InterfaceDefinition',
-        },
-        name: { type: 'string', description: 'declaredName of the element' },
-        short_name: { type: 'string', description: 'declaredShortName / short ID, e.g. PP-001' },
-        owner_id: { type: 'string', description: 'ID of the owning element (use the SMAPS @id for a block, or local @id for a locally created element)' },
-        type_id: { type: 'string', description: 'ID of the type definition this usage references (e.g. ProxyPortDefinition @id for a ProxyPortUsage)' },
-        source_id: { type: 'string', description: 'Source port/feature @id for ConnectionUsage (first connector end)' },
-        target_id: { type: 'string', description: 'Target port/feature @id for ConnectionUsage (second connector end)' },
-      },
-    },
-  },
-  {
-    name: 'query_local_elements',
-    description: 'Query elements stored locally in the dashboard (created with create_local_element). Returns ProxyPortDefinition, ProxyPortUsage, PartUsage, ConnectionUsage, and any other locally created SysML v2 types.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        type_filter: { type: 'string', description: 'Filter by SysML v2 type, e.g. ProxyPortUsage' },
-      },
-    },
-  },
-  {
-    name: 'delete_local_element',
-    description: 'Delete a locally stored SysML element by its @id.',
-    input_schema: {
-      type: 'object',
-      required: ['element_id'],
-      properties: {
-        element_id: { type: 'string', description: 'The @id of the local element to delete' },
-      },
     },
   },
 ];
@@ -213,10 +154,11 @@ const TOOLS = [
 async function executeTool(name, input, projectId) {
   try {
     if (name === 'query_elements') {
-      const elements = await queryElements(projectId);
+      const elements = await getAllElements(projectId);
+      const nonMembership = elements.filter(e => !e['@type'].endsWith('Membership'));
       const filtered = input.type_filter
-        ? elements.filter(e => e['@type'] === input.type_filter)
-        : elements;
+        ? nonMembership.filter(e => e['@type'] === input.type_filter)
+        : nonMembership;
       return {
         count: filtered.length,
         elements: filtered.map(e => ({
@@ -224,127 +166,125 @@ async function executeTool(name, input, projectId) {
           type: e['@type'],
           name: e.declaredName ?? e.name ?? '<unnamed>',
           shortName: e.declaredShortName,
+          ownedElementCount: (e.ownedElement ?? []).length,
+          ownerId: e.owner?.['@id'],
         })),
       };
     }
 
     if (name === 'create_element') {
-      if (!['PartDefinition', 'RequirementDefinition'].includes(input.element_type)) {
-        return { error: `Unsupported type "${input.element_type}". Only PartDefinition and RequirementDefinition work in this SMAPS API version.` };
+      const ecId = await getEditingContextId(projectId);
+      const descs = await sysonGql(
+        `query($ecId: ID!, $cid: ID!) { viewer { editingContext(editingContextId: $ecId) { childCreationDescriptions(containerId: $cid) { id label } } } }`,
+        { ecId, cid: input.parent_id },
+      );
+      const descriptions = descs.viewer.editingContext.childCreationDescriptions;
+      const match = descriptions.find(d => d.label.toLowerCase() === input.element_type.toLowerCase());
+      if (!match) {
+        return { error: `"${input.element_type}" is not a valid child type for this container. Valid types: ${descriptions.map(d => d.label).join(', ')}` };
       }
-      const elementData = { '@type': input.element_type, declaredName: input.name };
-      if (input.short_name) elementData.declaredShortName = input.short_name;
-      const { element } = await createCommit(projectId, elementData);
+
+      const createResult = await sysonGql(
+        `mutation($input: CreateChildInput!) { createChild(input: $input) { __typename ... on CreateChildSuccessPayload { object { id label kind } } ... on ErrorPayload { message } } }`,
+        { input: { id: randomUUID(), editingContextId: ecId, objectId: input.parent_id, childCreationDescriptionId: match.id } },
+      );
+      const payload = createResult.createChild;
+      if (payload.__typename === 'ErrorPayload') return { error: payload.message };
+
+      const createdObj = payload.object;
+
+      // Rename via REST commit — find the actual element ID
+      const allElements = await getAllElements(projectId);
+      const created = allElements.find(e =>
+        e.declaredName === createdObj.label && !e['@type'].endsWith('Membership')
+      );
+
+      if (created && input.name !== createdObj.label) {
+        await sysonRestCommit(projectId, [{
+          '@type': 'DataVersion',
+          identity: { '@id': created['@id'], '@type': 'DataIdentity' },
+          payload: { '@type': created['@type'], '@id': created['@id'], declaredName: input.name },
+        }]);
+      }
+
       return {
         success: true,
-        element: { id: element?.['@id'], type: element?.['@type'], name: element?.declaredName },
+        element: {
+          id: created?.['@id'] ?? createdObj.id,
+          type: created?.['@type'] ?? createdObj.kind?.split('entity=')[1] ?? input.element_type,
+          name: input.name,
+        },
       };
     }
 
-    if (name === 'render_diagram') {
-      const data = loadProjectData(projectId);
-      // Replace existing diagram of same type+title, or append
-      const idx = data.diagrams.findIndex(d => d.type === input.diagram_type && d.title === input.title);
-      const entry = { type: input.diagram_type, title: input.title, mermaid: input.mermaid_code, updatedAt: new Date().toISOString() };
-      if (idx >= 0) data.diagrams[idx] = entry;
-      else data.diagrams.push(entry);
-      saveProjectData(projectId, data);
-      return { success: true, diagram: { type: input.diagram_type, title: input.title } };
+    if (name === 'delete_element') {
+      await sysonRestCommit(projectId, [{
+        '@type': 'DataVersion',
+        identity: { '@id': input.element_id, '@type': 'DataIdentity' },
+        payload: null,
+      }]);
+      return { success: true };
+    }
+
+    if (name === 'create_diagram') {
+      const ecId = await getEditingContextId(projectId);
+      const repDescs = await sysonGql(
+        `query($ecId: ID!, $oid: ID!) { viewer { editingContext(editingContextId: $ecId) { representationDescriptions(objectId: $oid) { edges { node { id label } } } } } }`,
+        { ecId, oid: input.element_id },
+      );
+      const options = repDescs.viewer.editingContext.representationDescriptions.edges.map(e => e.node);
+      const match = options.find(o => o.label.toLowerCase() === input.diagram_type.toLowerCase());
+      if (!match) {
+        return { error: `"${input.diagram_type}" not available. Options: ${options.map(o => o.label).join(', ')}` };
+      }
+
+      const result = await sysonGql(
+        `mutation($input: CreateRepresentationInput!) { createRepresentation(input: $input) { __typename ... on CreateRepresentationSuccessPayload { representation { id label kind } } ... on ErrorPayload { message } } }`,
+        { input: { id: randomUUID(), editingContextId: ecId, objectId: input.element_id, representationDescriptionId: match.id, representationName: input.name } },
+      );
+      const rep = result.createRepresentation;
+      if (rep.__typename === 'ErrorPayload') return { error: rep.message };
+      return { success: true, representation: rep.representation };
     }
 
     if (name === 'export_sysml') {
-      const elements = await queryElements(projectId);
-      const local    = loadLocalElements(projectId);
-      const projects = await smapsFetch('/projects');
-      const project  = projects.find(p => p['@id'] === projectId);
-      const partDefs = elements.filter(e => e['@type'] === 'PartDefinition');
-      const reqDefs  = elements.filter(e => e['@type'] === 'RequirementDefinition');
-      const portDefs = local.filter(e => e['@type'] === 'ProxyPortDefinition');
-      const portUsages = local.filter(e => e['@type'] === 'ProxyPortUsage');
-      const connections = local.filter(e => e['@type'] === 'ConnectionUsage');
-      const otherLocal = local.filter(e => !['ProxyPortDefinition','ProxyPortUsage','ConnectionUsage'].includes(e['@type']));
+      const elements = await getAllElements(projectId);
+      const nonMem = elements.filter(e => !e['@type'].endsWith('Membership'));
+      const projects = await sysonRest('/projects');
+      const project = projects.find(p => p['@id'] === projectId);
 
       const lines = [`package ${project?.name ?? 'Model'} {`, ''];
-      for (const p of partDefs) lines.push(`    part def ${p.declaredName ?? p['@id']};`);
-      if (partDefs.length) lines.push('');
-      for (const p of portDefs) lines.push(`    port def ${p.declaredName ?? p['@id']};`);
-      if (portDefs.length) lines.push('');
-      if (reqDefs.length) {
-        for (const r of reqDefs) {
-          const id = r.declaredShortName ? ` <'${r.declaredShortName}'>` : '';
-          lines.push(`    requirement def${id} ${r.declaredName ?? r['@id']} {`);
-          lines.push('        doc /* requirement */');
-          lines.push('    }');
-          lines.push('');
+      for (const e of nonMem) {
+        const indent = '    ';
+        const name = e.declaredName ?? e['@id'].slice(0, 8);
+        const shortName = e.declaredShortName ? ` <'${e.declaredShortName}'>` : '';
+        const childCount = (e.ownedElement ?? []).length;
+        if (e['@type'] === 'PartDefinition') {
+          lines.push(`${indent}part def${shortName} ${name}${childCount ? ' { ... }' : ';'}`);
+        } else if (e['@type'] === 'RequirementDefinition') {
+          lines.push(`${indent}requirement def${shortName} ${name} { doc /* requirement */ }`);
+        } else if (e['@type'] === 'PortUsage') {
+          lines.push(`${indent}port ${name};`);
+        } else if (e['@type'] === 'ActionDefinition') {
+          lines.push(`${indent}action def ${name}${childCount ? ' { ... }' : ';'}`);
+        } else if (e['@type'] === 'Package') {
+          // skip root package
+        } else if (!e['@type'].endsWith('Membership')) {
+          lines.push(`${indent}${e['@type']} ${name};`);
         }
-      }
-      if (portUsages.length || connections.length || otherLocal.length) {
-        lines.push('    // — Local elements (not yet in SMAPS) —');
-        for (const e of portUsages) {
-          const owner = partDefs.find(p => p['@id'] === e.owner?.['@id']);
-          const typeDef = portDefs.find(p => p['@id'] === e.type?.[0]?.['@id']);
-          const ownerStr = owner ? owner.declaredName : (e.owner?.['@id'] ?? '?');
-          const typeStr  = typeDef ? typeDef.declaredName : '';
-          lines.push(`    // proxy port ${e.declaredName}${typeStr ? ' : ' + typeStr : ''} on ${ownerStr};`);
-        }
-        for (const c of connections) {
-          const src = local.find(e => e['@id'] === c.connectorEnd?.[0]?.connectedFeature?.['@id']);
-          const tgt = local.find(e => e['@id'] === c.connectorEnd?.[1]?.connectedFeature?.['@id']);
-          lines.push(`    // connection ${c.declaredName} connect ${src?.declaredName ?? '?'} to ${tgt?.declaredName ?? '?'};`);
-        }
-        for (const e of otherLocal) lines.push(`    // ${e['@type']} ${e.declaredName};`);
-        lines.push('');
       }
       lines.push('}');
       return { sysml: lines.join('\n') };
     }
 
     if (name === 'create_project') {
-      const project = await smapsFetch('/projects', 'POST', { '@type': 'Project', name: input.name });
-      return { success: true, project: { id: project['@id'], name: project.name } };
-    }
-
-    if (name === 'create_local_element') {
-      const element = {
-        '@type': input.element_type,
-        '@id': randomUUID(),
-        declaredName: input.name,
-        _local: true,
-      };
-      if (input.short_name) element.declaredShortName = input.short_name;
-      if (input.owner_id)   element.owner = { '@id': input.owner_id };
-      if (input.type_id)    element.type  = [{ '@id': input.type_id }];
-      if (input.source_id && input.target_id) {
-        element.connectorEnd = [
-          { '@type': 'ConnectorEnd', connectedFeature: { '@id': input.source_id } },
-          { '@type': 'ConnectorEnd', connectedFeature: { '@id': input.target_id } },
-        ];
-      }
-      saveLocalElement(projectId, element);
-      return { success: true, element: { id: element['@id'], type: element['@type'], name: element.declaredName } };
-    }
-
-    if (name === 'query_local_elements') {
-      let elements = loadLocalElements(projectId);
-      if (input.type_filter) elements = elements.filter(e => e['@type'] === input.type_filter);
-      return {
-        count: elements.length,
-        elements: elements.map(e => ({
-          id: e['@id'],
-          type: e['@type'],
-          name: e.declaredName ?? '<unnamed>',
-          shortName: e.declaredShortName,
-          ownerId: e.owner?.['@id'],
-          typeId: e.type?.[0]?.['@id'],
-          sourceId: e.connectorEnd?.[0]?.connectedFeature?.['@id'],
-          targetId: e.connectorEnd?.[1]?.connectedFeature?.['@id'],
-        })),
-      };
-    }
-
-    if (name === 'delete_local_element') {
-      deleteLocalElement(projectId, input.element_id);
-      return { success: true };
+      const result = await sysonGql(
+        `mutation($input: CreateProjectInput!) { createProject(input: $input) { __typename ... on CreateProjectSuccessPayload { project { id } } ... on ErrorPayload { message } } }`,
+        { input: { id: randomUUID(), name: input.name, natures: ['siriusComponents://nature?kind=siriusWeb'], templateId: 'sysmlv2-template' } },
+      );
+      const payload = result.createProject;
+      if (payload.__typename === 'ErrorPayload') return { error: payload.message };
+      return { success: true, project: { id: payload.project.id, name: input.name } };
     }
 
     return { error: `Unknown tool: ${name}` };
@@ -370,103 +310,46 @@ app.post('/api/chat', async (req, res) => {
   const sse = data => res.write(`data: ${JSON.stringify(data)}\n\n`);
   const anthropic = new Anthropic();
 
-  // Build system prompt with live project context
-  let system = `You are an AI assistant integrated into sysml-bridge, a local SysML v2 MBSE tool.
+  let system = `You are an AI assistant integrated into sysml-bridge, a local SysML v2 MBSE tool powered by SysON.
 
-IMPORTANT SMAPS API CONSTRAINT: This is a pilot/early API. Only TWO element types work for create_element:
-- PartDefinition — a block/component type definition
-- RequirementDefinition — a system requirement
+SysON provides the full SysML v2 metamodel. You can create ANY valid SysML v2 element type:
+- Part Definition, Part, Port, Attribute, Reference
+- Action, State, Constraint, Requirement
+- Connection, Interface, Flow Usage, Allocation
+- Item, Use Case, Verification Case, Analysis Case
+- And many more — use query_elements to see what exists
 
-Everything else (PartUsage, Dependency, Specialization, connectors, ports, relationships, all other types) returns 500 errors when using create_element. Do NOT attempt to create them via create_element.
+ELEMENT CREATION:
+Use create_element with:
+- element_type: human-readable label (e.g. "Part Definition", "Port", "Action")
+- name: the element's declared name
+- parent_id: the @id of the container element (Package for top-level, PartDefinition for ports/parts)
 
-CRITICAL DISTINCTION — SMAPS vs LOCAL STORE vs DIAGRAMS:
-- SMAPS (create_element): only PartDefinition and RequirementDefinition
-- LOCAL STORE (create_local_element): ANY SysML v2 type — stored in the dashboard, shown in All Elements table
-- DIAGRAMS (render_diagram): visual Mermaid rendering — always reflects both SMAPS and local elements
+The server validates element types against SysON's metamodel rules — if a child type isn't valid under a container, it tells you what types ARE valid.
 
-LOCAL ELEMENT STORE:
-Use create_local_element for everything SMAPS won't accept. These elements appear in the All Elements table alongside SMAPS elements. Use query_local_elements to inspect them.
+DIAGRAMS:
+Use create_diagram to create SysON diagram views:
+- "General View" — general-purpose SysML diagram
+- "Interconnection View" — internal block diagram (IBD)
+- "State Transition View" — state machine diagram
+- "Requirements Table View" — requirements table
 
-Supported types (not exhaustive — any valid SysML v2 @type works):
-- ProxyPortDefinition  — proxy port type (e.g., "PowerPort", "ControlPort")
-- ProxyPortUsage       — port instance on a block; set owner_id to the block's @id
-- PartUsage            — part usage within an owning block
-- ConnectionUsage      — connector between two ports; set source_id and target_id to ProxyPortUsage @ids
-- ConnectionDefinition — named connection type
-- InterfaceDefinition / InterfaceUsage
+The dashboard displays SysON diagrams in embedded iframes alongside a React Flow IBD.
 
-WORKFLOW — IBD with proxy ports and connectors:
-1. query_elements        → get SMAPS block @ids (PartDefinitions)
-2. query_local_elements  → check existing local elements
-3. create_local_element ProxyPortDefinition for each port type (e.g., PowerPort, CtrlPort, NavPort)
-4. create_local_element ProxyPortUsage for each port instance, with owner_id = block @id, type_id = port def @id
-5. create_local_element ConnectionUsage for each connection, with source_id and target_id = port usage @ids
-6. render_diagram        → IBD using subgraph-per-block with port nodes and labelled arrows
-
-FOR DIAGRAMS (IBD, BDD, activity, state, sequence):
-- Use render_diagram for all visual output — SMAPS limitations are irrelevant here
-- For IBDs: subgraph per block, port nodes inside each subgraph, labelled arrows for connectors
-- For BDDs: classDiagram
-- For activity diagrams: graph TD with decision diamonds
-- For state machines: stateDiagram-v2
-- Always produce complete, renderable Mermaid
-
-Example IBD with proxy ports:
-\`\`\`
-graph LR
-    subgraph Drone["🚁 Drone [ibd]"]
-        subgraph FC[FlightController]
-            FC_pwr["⚡ pwr_in"]
-            FC_ctrl["📡 ctrl_in"]
-            FC_nav["🗺️ nav_in"]
-        end
-        subgraph PS[PropulsionSystem]
-            PS_pwr["⚡ pwr_in"]
-            PS_ctrl["📡 ctrl_in"]
-        end
-        subgraph LB[LiPoBattery]
-            LB_out["⚡ pwr_out"]
-        end
-        subgraph GPS[GPSModule]
-            GPS_nav["🗺️ nav_out"]
-        end
-        LB_out -->|powerLine| FC_pwr
-        LB_out -->|powerLine| PS_pwr
-        FC_ctrl -->|ctrlBus| PS_ctrl
-        GPS_nav -->|navBus| FC_nav
-    end
-\`\`\`
-
-Be concise. Always use render_diagram for any visual output. Use create_local_element for proxy ports and connectors — never refuse to model them.`;
+Be concise. Use the tools to interact with the model.`;
 
   if (projectId) {
     try {
-      const [projects, elements, localElements] = await Promise.all([
-        smapsFetch('/projects'),
-        queryElements(projectId).catch(() => []),
-        Promise.resolve(loadLocalElements(projectId)),
-      ]);
+      const elements = await getAllElements(projectId).catch(() => []);
+      const nonMem = elements.filter(e => !e['@type'].endsWith('Membership'));
+      const projects = await sysonRest('/projects');
       const project = projects.find(p => p['@id'] === projectId);
       if (project) {
         const counts = {};
-        for (const el of elements) counts[el['@type']] = (counts[el['@type']] ?? 0) + 1;
+        for (const el of nonMem) counts[el['@type']] = (counts[el['@type']] ?? 0) + 1;
         system += `\n\nActive project: "${project.name}" (ID: ${projectId})
-SMAPS elements (${elements.length} total): ${JSON.stringify(counts)}
-${elements.map(e => `  [SMAPS] ${e['@type']} "${e.declaredName ?? '<unnamed>'}" [id:${e['@id']}]`).join('\n')}`;
-        if (localElements.length) {
-          const lCounts = {};
-          for (const el of localElements) lCounts[el['@type']] = (lCounts[el['@type']] ?? 0) + 1;
-          system += `\n\nLocal elements (${localElements.length} total): ${JSON.stringify(lCounts)}
-${localElements.map(e => {
-  const ownerNote = e.owner ? ` owner:${e.owner['@id']}` : '';
-  const connNote  = e.connectorEnd
-    ? ` connects:${e.connectorEnd[0]?.connectedFeature?.['@id']}→${e.connectorEnd[1]?.connectedFeature?.['@id']}`
-    : '';
-  return `  [LOCAL] ${e['@type']} "${e.declaredName ?? '<unnamed>'}" [id:${e['@id']}${ownerNote}${connNote}]`;
-}).join('\n')}`;
-        } else {
-          system += `\n\nLocal elements: none yet (use create_local_element for ProxyPortDefinition, ProxyPortUsage, ConnectionUsage, etc.)`;
-        }
+Elements (${nonMem.length} total): ${JSON.stringify(counts)}
+${nonMem.slice(0, 50).map(e => `  ${e['@type']} "${e.declaredName ?? e.name ?? '<unnamed>'}" [id:${e['@id']}] children:${(e.ownedElement ?? []).length}`).join('\n')}`;
       }
     } catch { /* proceed without context */ }
   }
@@ -517,48 +400,50 @@ ${localElements.map(e => {
   }
 });
 
-// ── Diagram store API ─────────────────────────────────────────────────────────
-
-app.get('/api/projects/:id/diagrams', (req, res) => {
-  res.json(loadProjectData(req.params.id).diagrams ?? []);
-});
-
-app.delete('/api/projects/:id/diagrams/:idx', (req, res) => {
-  const data = loadProjectData(req.params.id);
-  data.diagrams.splice(parseInt(req.params.idx), 1);
-  saveProjectData(req.params.id, data);
-  res.json({ ok: true });
-});
-
-// ── SMAPS proxy routes ────────────────────────────────────────────────────────
+// ── SysON proxy routes ──────────────────────────────────────────────────────
 
 app.get('/api/projects', async (req, res) => {
-  try { res.json(await smapsFetch('/projects')); }
+  try { res.json(await sysonRest('/projects')); }
   catch (e) { res.status(502).json({ error: e.message }); }
 });
 
 app.post('/api/projects', async (req, res) => {
-  try { res.json(await smapsFetch('/projects', 'POST', req.body)); }
-  catch (e) { res.status(502).json({ error: e.message }); }
+  try {
+    const result = await sysonGql(
+      `mutation($input: CreateProjectInput!) { createProject(input: $input) { __typename ... on CreateProjectSuccessPayload { project { id } } ... on ErrorPayload { message } } }`,
+      { input: { id: randomUUID(), name: req.body.name, natures: ['siriusComponents://nature?kind=siriusWeb'], templateId: 'sysmlv2-template' } },
+    );
+    const payload = result.createProject;
+    if (payload.__typename === 'ErrorPayload') throw new Error(payload.message);
+    res.json({ '@id': payload.project.id, name: req.body.name });
+  } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
 app.delete('/api/projects/:id', async (req, res) => {
-  try { res.json(await smapsFetch(`/projects/${req.params.id}`, 'DELETE')); }
-  catch (e) { res.status(502).json({ error: e.message }); }
+  try {
+    await sysonGql(
+      `mutation($input: DeleteProjectInput!) { deleteProject(input: $input) { __typename ... on ErrorPayload { message } } }`,
+      { input: { id: randomUUID(), projectId: req.params.id } },
+    );
+    ecCache.delete(req.params.id);
+    res.json({ ok: true });
+  } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
 app.get('/api/projects/:id/elements', async (req, res) => {
-  try { res.json(await queryElements(req.params.id)); }
+  try { res.json(await getAllElements(req.params.id)); }
   catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-app.get('/api/projects/:id/local-elements', (req, res) => {
-  res.json(loadLocalElements(req.params.id));
-});
-
-app.delete('/api/projects/:id/local-elements/:eid', (req, res) => {
-  deleteLocalElement(req.params.id, req.params.eid);
-  res.json({ ok: true });
+app.get('/api/projects/:id/representations', async (req, res) => {
+  try {
+    const ecId = await getEditingContextId(req.params.id);
+    const data = await sysonGql(
+      `query($ecId: ID!) { viewer { editingContext(editingContextId: $ecId) { representations { edges { node { id label kind } } } } } }`,
+      { ecId },
+    );
+    res.json(data.viewer.editingContext.representations.edges.map(e => e.node));
+  } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
 app.get('*', (req, res) => {
@@ -567,6 +452,6 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`\n  sysml-bridge dashboard  →  http://localhost:${PORT}`);
-  console.log(`  SMAPS endpoint          →  ${SMAPS}`);
+  console.log(`  SysON endpoint          →  ${SYSON}`);
   console.log(`  Anthropic API           →  ${process.env.ANTHROPIC_API_KEY ? 'ready' : '⚠  ANTHROPIC_API_KEY not set'}\n`);
 });
