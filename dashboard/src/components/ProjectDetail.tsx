@@ -14,11 +14,16 @@ interface ProjectDetailProps {
 export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProps) {
   const [elements, setElements] = useState<SysONElement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       setElements(await getElements(project['@id']));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load elements');
+      setElements([]);
     } finally {
       setLoading(false);
     }
@@ -27,6 +32,7 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
   useEffect(() => { load(); }, [load, refreshKey]);
 
   if (loading) return <div style={{ padding: 32, color: 'var(--text4)', fontSize: 12 }}>Loading model…</div>;
+  if (error) return <div style={{ padding: 32, color: '#ef4444', fontSize: 12 }}>Error: {error}</div>;
 
   const nonMembership = elements.filter(e => !e['@type'].endsWith('Membership'));
   const typeCounts: Record<string, number> = {};
@@ -51,7 +57,7 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
         {[
           { label: 'Elements', value: nonMembership.length, sub: 'in SysON' },
           { label: 'Types', value: Object.keys(typeCounts).length, sub: 'unique @types' },
-          { label: 'Depth', value: roots.length, sub: 'root nodes' },
+          { label: 'Roots', value: roots.length, sub: 'root nodes' },
         ].map(s => (
           <div key={s.label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 14 }}>
             <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>{s.label}</div>
@@ -72,7 +78,7 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
       </div>
 
       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 10 }}>Diagrams</div>
-      <DiagramPanel projectId={project['@id']} elements={elements} />
+      <DiagramPanel projectId={project['@id']} elements={elements} refreshKey={refreshKey} />
 
       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 10 }}>Containment Tree</div>
       <ContainmentTree roots={roots} />

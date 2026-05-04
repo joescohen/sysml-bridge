@@ -6,15 +6,17 @@ import type { SysONElement, Representation } from '../types/sysml';
 interface DiagramPanelProps {
   projectId: string;
   elements: SysONElement[];
+  refreshKey?: number;
 }
 
-export function DiagramPanel({ projectId, elements }: DiagramPanelProps) {
+export function DiagramPanel({ projectId, elements, refreshKey }: DiagramPanelProps) {
   const [activeTab, setActiveTab] = useState(0);
   const [representations, setRepresentations] = useState<Representation[]>([]);
 
   useEffect(() => {
+    setActiveTab(0);
     getRepresentations(projectId).then(setRepresentations).catch(() => setRepresentations([]));
-  }, [projectId]);
+  }, [projectId, refreshKey]);
 
   const hasPortUsage = elements.some(e => e['@type'] === 'PortUsage');
 
@@ -66,6 +68,7 @@ export function DiagramPanel({ projectId, elements }: DiagramPanelProps) {
       </div>
 
       {activeTab_?.kind === 'syson' && (
+        // No sandbox: SysON editor requires scripts + same-origin access. Only served on localhost.
         <iframe
           src={`${sysonBase}/projects/${projectId}/edit/${(activeTab_ as Extract<Tab, { kind: 'syson' }>).repId}`}
           style={{
