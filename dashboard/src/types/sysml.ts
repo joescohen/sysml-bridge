@@ -6,6 +6,7 @@ export interface SysONElement {
   name?: string | null;
   ownedElement?: Array<{ '@id': string }>;
   owner?: { '@id': string } | null;
+  connectorEnd?: Array<{ connectedFeature?: { '@id': string } }>;
 }
 
 export interface Project {

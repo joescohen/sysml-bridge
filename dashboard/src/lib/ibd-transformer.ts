@@ -39,12 +39,12 @@ export function transformToIBD(
 
   const sourcePorts = new Set(
     connections
-      .map(c => (c as any).connectorEnd?.[0]?.connectedFeature?.['@id'])
+      .map(c => c.connectorEnd?.[0]?.connectedFeature?.['@id'])
       .filter((id): id is string => !!id),
   );
   const targetPorts = new Set(
     connections
-      .map(c => (c as any).connectorEnd?.[1]?.connectedFeature?.['@id'])
+      .map(c => c.connectorEnd?.[1]?.connectedFeature?.['@id'])
       .filter((id): id is string => !!id),
   );
 
@@ -70,10 +70,10 @@ export function transformToIBD(
   });
 
   const edges: Edge[] = connections
-    .filter(c => (c as any).connectorEnd?.[0] && (c as any).connectorEnd?.[1])
+    .filter(c => c.connectorEnd?.[0] && c.connectorEnd?.[1])
     .map(c => {
-      const srcPortId = (c as any).connectorEnd[0].connectedFeature['@id'];
-      const tgtPortId = (c as any).connectorEnd[1].connectedFeature['@id'];
+      const srcPortId = c.connectorEnd![0].connectedFeature!['@id'];
+      const tgtPortId = c.connectorEnd![1].connectedFeature!['@id'];
       const srcPort = portUsages.find(p => p['@id'] === srcPortId);
       const tgtPort = portUsages.find(p => p['@id'] === tgtPortId);
       const srcBlock = srcPort ? resolveLogicalOwner(srcPort, byId) : undefined;
