@@ -2,7 +2,7 @@ import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { randomUUID } from 'crypto';
 
 const __root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -490,6 +490,29 @@ app.get('/api/projects/:id/representations', async (req, res) => {
     );
     res.json(data.viewer.editingContext.representations.edges.map(e => e.node));
   } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+const TOPOLOGY_PATH = join(__dirname, '..', 'topology.json');
+
+function loadTopology() {
+  try { return existsSync(TOPOLOGY_PATH) ? JSON.parse(readFileSync(TOPOLOGY_PATH, 'utf8')) : {}; }
+  catch { return {}; }
+}
+
+app.get('/api/projects/:id/topology', (req, res) => {
+  const topo = loadTopology();
+  res.json(topo[req.params.id] ?? { edges: [] });
+});
+
+app.post('/api/projects/:id/topology/edges', (req, res) => {
+  const { id: projectId } = req.params;
+  const edge = req.body; // { id, label, sourcePort, targetPort }
+  const topo = loadTopology();
+  if (!topo[projectId]) topo[projectId] = { edges: [] };
+  topo[projectId].edges = topo[projectId].edges.filter(e => e.id !== edge.id);
+  topo[projectId].edges.push(edge);
+  writeFileSync(TOPOLOGY_PATH, JSON.stringify(topo, null, 2));
+  res.json({ ok: true });
 });
 
 app.get('*', (req, res) => {

@@ -19,16 +19,16 @@ function gradFor(name: string) {
 export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
-  const [smapsOnline, setSmapsOnline] = useState(false);
+  const [sysonOnline, setSysonOnline] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const loadProjects = useCallback(async () => {
     try {
       const list = await getProjects();
       setProjects(list);
-      setSmapsOnline(true);
+      setSysonOnline(true);
     } catch {
-      setSmapsOnline(false);
+      setSysonOnline(false);
     }
   }, []);
 
@@ -54,7 +54,7 @@ export function App() {
   return (
     <div style={layout.wrapper}>
       <header style={layout.header}>
-        <div style={{ width: 7, height: 7, borderRadius: '50%', background: smapsOnline ? 'var(--green)' : 'var(--red)', flexShrink: 0, transition: 'background 0.3s' }} />
+        <div style={{ width: 7, height: 7, borderRadius: '50%', background: sysonOnline ? 'var(--green)' : 'var(--red)', flexShrink: 0, transition: 'background 0.3s' }} />
         <h1 style={{ fontSize: 14, fontWeight: 600, color: '#f1f5f9', letterSpacing: '0.02em' }}>sysml-bridge</h1>
         <span style={{ color: 'var(--border2)' }}>·</span>
         <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'monospace' }}>SysON :8080</span>

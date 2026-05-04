@@ -29,3 +29,14 @@ export function getElements(projectId: string): Promise<SysONElement[]> {
 export function getRepresentations(projectId: string): Promise<Representation[]> {
   return apiFetch(`/api/projects/${projectId}/representations`);
 }
+
+export interface TopologyEdge {
+  id: string;
+  label: string;
+  sourcePort: string;
+  targetPort: string;
+}
+
+export function getTopology(projectId: string): Promise<{ edges: TopologyEdge[] }> {
+  return apiFetch(`/api/projects/${projectId}/topology`);
+}

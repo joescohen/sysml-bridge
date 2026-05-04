@@ -1,0 +1,14 @@
+{
+  "e042c1f5-904e-499c-979e-65b19fcf440f": {
+    "edges": [
+      { "id": "conn-1", "label": "Guidance", "sourcePort": "2309f978-ff47-4857-8572-3712280dfa45", "targetPort": "d608f4f0-a7bd-4de9-af89-e577d91ad49e" },
+      { "id": "conn-2", "label": "Nav Data", "sourcePort": "7bc392b5-996f-4939-9671-eb4af91f8332", "targetPort": "991be1f4-64d1-42fb-b44e-301a69509c1b" },
+      { "id": "conn-3", "label": "Mission Cmd", "sourcePort": "366a0e3d-b845-40dd-8359-c923898db536", "targetPort": "3fc2a85b-6d0c-4afe-8e31-37c11b1536a8" },
+      { "id": "conn-4", "label": "Fuel Ctrl", "sourcePort": "9943ab72-020e-49ea-a110-9850b3d4e692", "targetPort": "7f03f844-8988-45d3-96f2-7531cb8567da" },
+      { "id": "conn-5", "label": "Pump Ctrl", "sourcePort": "b3e01628-3f5c-45f9-8176-0adf2e98cc02", "targetPort": "f9a592b7-8f2b-4a39-b451-9ec83bda1fed" },
+      { "id": "conn-6", "label": "Power", "sourcePort": "37302698-93d7-4d58-b15c-024bbf4632d7", "targetPort": "12999d15-d004-4c1e-a920-b0b9d50ee7b9" },
+      { "id": "conn-7", "label": "Power", "sourcePort": "37302698-93d7-4d58-b15c-024bbf4632d7", "targetPort": "12bd7e03-33f5-4211-993a-10674f9267fc" },
+      { "id": "conn-8", "label": "Status", "sourcePort": "6e29445b-6c82-49e2-89e2-d4a6665e68ba", "targetPort": "5e821bb8-ba79-4e1b-875d-a820d94447bb" }
+    ]
+  }
+}
