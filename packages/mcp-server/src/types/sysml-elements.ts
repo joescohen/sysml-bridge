@@ -1,70 +1,97 @@
 export interface SysmlElement {
   id: string;
+  elementId: string;
   type: string;
-  name: string;
-  attributes: Record<string, unknown>;
+  name: string | null;
+  shortName: string | null;
+  qualifiedName: string | null;
+  ownerId: string | null;
+  ownedElementIds: string[];
+  raw: Record<string, unknown>;
 }
 
 export interface SysmlRelationship {
   id: string;
   type: string;
-  sourceId: string;
-  targetId: string;
+  sourceIds: string[];
+  targetIds: string[];
+  raw: Record<string, unknown>;
 }
 
 export interface ProjectState {
   projectId: string;
+  commitId: string;
+  branchId: string;
   totalElements: number;
   elementCountsByType: Record<string, number>;
 }
 
-export const SYSML_ELEMENT_TYPES = [
+export const SYSML_DEFINITION_TYPES = [
   "Package",
   "PartDefinition",
-  "PartUsage",
   "PortDefinition",
-  "PortUsage",
   "ConnectionDefinition",
-  "ConnectionUsage",
   "InterfaceDefinition",
-  "InterfaceUsage",
   "ItemDefinition",
-  "ItemUsage",
   "AttributeDefinition",
-  "AttributeUsage",
   "RequirementDefinition",
-  "RequirementUsage",
   "ConstraintDefinition",
-  "ConstraintUsage",
   "ActionDefinition",
-  "ActionUsage",
   "StateDefinition",
-  "StateUsage",
   "UseCaseDefinition",
-  "UseCaseUsage",
   "AllocationDefinition",
-  "AllocationUsage",
   "ViewDefinition",
-  "ViewUsage",
   "ViewpointDefinition",
-  "ViewpointUsage",
+  "ConcernDefinition",
   "AnalysisCaseDefinition",
-  "AnalysisCaseUsage",
   "VerificationCaseDefinition",
-  "VerificationCaseUsage",
+  "EnumerationDefinition",
+  "OccurrenceDefinition",
+  "MetadataDefinition",
+  "CalcDefinition",
+  "RenderingDefinition",
 ] as const;
 
-export type SysmlElementType = (typeof SYSML_ELEMENT_TYPES)[number];
+export const SYSML_USAGE_TYPES = [
+  "PartUsage",
+  "PortUsage",
+  "ConnectionUsage",
+  "InterfaceUsage",
+  "ItemUsage",
+  "AttributeUsage",
+  "RequirementUsage",
+  "ConstraintUsage",
+  "ActionUsage",
+  "StateUsage",
+  "UseCaseUsage",
+  "AllocationUsage",
+  "ViewUsage",
+  "ViewpointUsage",
+  "AnalysisCaseUsage",
+  "VerificationCaseUsage",
+  "EnumerationUsage",
+  "OccurrenceUsage",
+  "CalcUsage",
+  "RenderingUsage",
+] as const;
 
 export const SYSML_RELATIONSHIP_TYPES = [
-  "Dependency",
-  "Redefinition",
-  "Subsetting",
+  "OwningMembership",
+  "FeatureMembership",
   "FeatureTyping",
+  "Subsetting",
+  "Redefinition",
   "Specialization",
+  "Subclassification",
+  "Conjugation",
+  "Dependency",
+  "Connector",
+  "BindingConnector",
+  "Annotation",
   "SatisfyRequirementUsage",
   "RequirementVerificationMembership",
-  "AllocationUsage",
 ] as const;
 
+export type SysmlDefinitionType = (typeof SYSML_DEFINITION_TYPES)[number];
+export type SysmlUsageType = (typeof SYSML_USAGE_TYPES)[number];
 export type SysmlRelationshipType = (typeof SYSML_RELATIONSHIP_TYPES)[number];
