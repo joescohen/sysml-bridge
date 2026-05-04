@@ -147,11 +147,13 @@ SSE streaming and conversation management unchanged. The tool suite in `server.j
 **`create_element` tool (replaces `create_local_element`):**
 1. Resolve `editingContextId` for the project
 2. Call `childCreationDescriptions(containerId)` to find the matching `childCreationDescriptionId` for the desired element type
-3. Call `createChild` mutation
-4. Call `renameTreeItem` mutation to set the element name
+3. Call `createChild` mutation (returns auto-named element)
+4. Rename via REST commit API: `POST /api/rest/projects/:id/commits` with `DataVersion` change setting `declaredName`
 5. Return the created element
 
-**`delete_element` tool (replaces `delete_local_element`):** Calls `deleteTreeItem` mutation.
+**`delete_element` tool (replaces `delete_local_element`):** REST commit with `payload: null` to remove the element.
+
+> **Note:** `renameTreeItem` and `deleteTreeItem` GraphQL mutations require a tree `representationId` that fails with a type-checking error in this SysON version. The REST commit API provides a reliable alternative for both rename and delete operations.
 
 **`create_diagram` tool (replaces `render_diagram`):** Calls `createRepresentation` mutation to create a SysON diagram view. Returns the representation ID so the dashboard can display it.
 
@@ -218,7 +220,6 @@ Same React Flow canvas with `SysMLBlockNode` and `SysMLEdge` custom types. `ibd-
 | File | Purpose |
 |---|---|
 | `src/components/ContainmentTree.tsx` | Expandable tree built from SysON elements |
-| `src/lib/syson.ts` | SysON API helpers (REST + GraphQL) for frontend |
 | `src/lib/containment.ts` | Build tree from flat element array (skip memberships, resolve parents) |
 
 ### Modified
