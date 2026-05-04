@@ -1,0 +1,6 @@
+{
+  "name": "@sysml-bridge/skills",
+  "version": "0.1.0",
+  "description": "Claude Code skills for MBSE workflows with SysML v2",
+  "skills": "skills/"
+}

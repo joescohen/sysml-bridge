@@ -1,0 +1,19 @@
+{
+  "name": "sysml-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude Code skill suite + MCP server for bidirectional natural-language ↔ SysML v2 MBSE workflows",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter mcp-server dev",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

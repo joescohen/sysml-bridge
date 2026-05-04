@@ -1,0 +1,29 @@
+services:
+  sysml-api:
+    image: ghcr.io/systems-modeling/sysml-v2-api-services:latest
+    ports:
+      - "9000:9000"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/sysml2
+      - SPRING_DATASOURCE_USERNAME=sysml2
+      - SPRING_DATASOURCE_PASSWORD=sysml2
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=sysml2
+      - POSTGRES_USER=sysml2
+      - POSTGRES_PASSWORD=sysml2
+    volumes:
+      - sysml-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sysml2"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  sysml-data:
