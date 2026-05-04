@@ -14,13 +14,23 @@ interface SidebarProps {
 export function Sidebar({ projects, currentProjectId, onSelect, onProjectsChanged, collapsed, onToggleCollapsed }: SidebarProps) {
   const [showModal, setShowModal] = useState(false);
   const [newName, setNewName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   async function handleCreate() {
-    if (!newName.trim()) return;
-    await createProject(newName.trim());
-    setNewName('');
-    setShowModal(false);
-    onProjectsChanged();
+    if (!newName.trim() || creating) return;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      await createProject(newName.trim());
+      setNewName('');
+      setShowModal(false);
+      onProjectsChanged();
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Failed to create project');
+    } finally {
+      setCreating(false);
+    }
   }
 
   async function handleDelete(e: React.MouseEvent, id: string, name: string) {
@@ -93,21 +103,27 @@ export function Sidebar({ projects, currentProjectId, onSelect, onProjectsChange
       </div>
 
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={() => setShowModal(false)}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={() => { setShowModal(false); setCreateError(null); }}>
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 12, padding: 24, width: 340, maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', marginBottom: 6 }}>New SysML Project</div>
             <div style={{ fontSize: 11.5, color: 'var(--text3)', marginBottom: 18, lineHeight: 1.5 }}>Creates a new SysML v2 project in SysON.</div>
             <input
-              style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border2)', borderRadius: 8, padding: '9px 12px', color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', outline: 'none', marginBottom: 14, display: 'block' }}
+              style={{ width: '100%', background: 'var(--bg)', border: `1px solid ${createError ? '#ef4444' : 'var(--border2)'}`, borderRadius: 8, padding: '9px 12px', color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', outline: 'none', marginBottom: createError ? 8 : 14, display: 'block' }}
               placeholder="Project name, e.g. DroneSystem"
               value={newName}
-              onChange={e => setNewName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') setShowModal(false); }}
+              onChange={e => { setNewName(e.target.value); setCreateError(null); }}
+              onKeyDown={e => { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') { setShowModal(false); setCreateError(null); } }}
               autoFocus
+              disabled={creating}
             />
+            {createError && (
+              <div style={{ fontSize: 11, color: '#ef4444', marginBottom: 12, lineHeight: 1.4 }}>{createError}</div>
+            )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowModal(false)} style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--border2)', background: 'transparent', color: 'var(--text3)', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleCreate} disabled={!newName.trim()} style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: 'var(--primary)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: newName.trim() ? 1 : 0.35 }}>Create Project</button>
+              <button onClick={() => { setShowModal(false); setCreateError(null); }} style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--border2)', background: 'transparent', color: 'var(--text3)', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={handleCreate} disabled={!newName.trim() || creating} style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: 'var(--primary)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: creating ? 'wait' : 'pointer', opacity: newName.trim() && !creating ? 1 : 0.35 }}>
+                {creating ? 'Creating…' : 'Create Project'}
+              </button>
             </div>
           </div>
         </div>

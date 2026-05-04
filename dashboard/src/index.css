@@ -141,5 +141,8 @@ html, body, #root {
   white-space: nowrap;
 }
 
+/* ── Containment tree row hover ────────────────────────────────────────────── */
+.tree-row:hover { background: var(--surface2) !important; }
+
 @keyframes spin  { to { transform: rotate(360deg); } }
 @keyframes pulse { 0%, 80%, 100% { opacity: 0.3; transform: scale(0.9); } 40% { opacity: 1; transform: scale(1.1); } }

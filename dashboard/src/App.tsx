@@ -58,7 +58,7 @@ export function App() {
     wrapper: { display: 'flex', flexDirection: 'column' as const, height: '100vh' },
     header: { height: 52, padding: '0 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, background: 'var(--bg)', zIndex: 10 },
     body: { display: 'grid', gridTemplateColumns: `${sidebarCollapsed ? 54 : isCompact ? 220 : 248}px minmax(0, 1fr)`, flex: 1, minHeight: 0, overflow: 'hidden' },
-    main: { overflowY: 'auto' as const, display: 'flex', flexDirection: 'column' as const },
+    main: { overflow: 'hidden' as const, display: 'flex', flexDirection: 'column' as const, flex: 1, minHeight: 0 },
   };
 
   return (
@@ -95,7 +95,7 @@ export function App() {
                 </div>
               )
               : (
-                <div style={{ padding: '28px 28px 0', flex: 1 }}>
+                <div style={{ padding: '28px 28px 0', flex: 1, overflowY: 'auto' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                     <div>
                       <div style={{ fontSize: 18, fontWeight: 700, color: '#f1f5f9' }}>Your Models</div>
