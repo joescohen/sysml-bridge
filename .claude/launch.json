@@ -3,9 +3,16 @@
   "configurations": [
     {
       "name": "dashboard",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["serve", "-p", "3000", "dashboard"],
-      "port": 3000
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["dashboard/server.js"],
+      "port": 6121
+    },
+    {
+      "name": "vite-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "dashboard",
+      "port": 5173
     }
   ]
 }

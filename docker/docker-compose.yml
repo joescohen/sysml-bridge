@@ -35,6 +35,49 @@ services:
       db:
         condition: service_healthy
 
+  jupyter:
+    image: mbsemashup/sysmlv2-jupyter:latest
+    platform: linux/amd64
+    environment:
+      - SYSML2_API_BASE_URL=http://sysml-api:9000
+    ports:
+      - "8888:8888"
+    restart: always
+    depends_on:
+      - sysml-api
+
+  syson-db:
+    image: postgres:15
+    restart: always
+    environment:
+      - POSTGRES_USER=syson
+      - POSTGRES_PASSWORD=syson
+      - POSTGRES_DB=syson
+    volumes:
+      - syson-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U syson"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  syson:
+    image: eclipsesyson/syson:latest
+    platform: linux/amd64
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://syson-db:5432/syson
+      - SPRING_DATASOURCE_USERNAME=syson
+      - SPRING_DATASOURCE_PASSWORD=syson
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
+    ports:
+      - "8080:8080"
+    restart: always
+    depends_on:
+      syson-db:
+        condition: service_healthy
+
 volumes:
   sysml-data:
+    driver: local
+  syson-data:
     driver: local

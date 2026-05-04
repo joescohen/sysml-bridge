@@ -7,6 +7,8 @@ export interface SysONElement {
   ownedElement?: Array<{ '@id': string }>;
   owner?: { '@id': string } | null;
   connectorEnd?: Array<{ connectedFeature?: { '@id': string } }>;
+  source?: Array<{ '@id': string }> | { '@id': string } | null;
+  target?: Array<{ '@id': string }> | { '@id': string } | null;
 }
 
 export interface Project {

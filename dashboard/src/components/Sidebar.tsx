@@ -7,9 +7,11 @@ interface SidebarProps {
   currentProjectId: string | null;
   onSelect: (id: string) => void;
   onProjectsChanged: () => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }
 
-export function Sidebar({ projects, currentProjectId, onSelect, onProjectsChanged }: SidebarProps) {
+export function Sidebar({ projects, currentProjectId, onSelect, onProjectsChanged, collapsed, onToggleCollapsed }: SidebarProps) {
   const [showModal, setShowModal] = useState(false);
   const [newName, setNewName] = useState('');
 
@@ -30,40 +32,61 @@ export function Sidebar({ projects, currentProjectId, onSelect, onProjectsChange
 
   const s = {
     sidebar: { borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' as const, overflow: 'hidden', height: '100%' },
-    header: { padding: '14px 16px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 },
+    header: { padding: collapsed ? '12px 8px 8px' : '14px 16px 10px', display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', gap: 7, flexShrink: 0 },
     label: { fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' as const, color: 'var(--text3)' },
     addBtn: { width: 22, height: 22, borderRadius: 5, border: '1px solid var(--border2)', background: 'transparent', color: 'var(--text3)', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-    list: { flex: 1, overflowY: 'auto' as const, padding: '0 8px 16px' },
+    collapseBtn: { width: 22, height: 22, borderRadius: 5, border: '1px solid var(--border2)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+    list: { flex: 1, overflowY: 'auto' as const, padding: collapsed ? '4px 7px 16px' : '0 8px 16px' },
   };
 
   return (
     <aside style={s.sidebar}>
       <div style={s.header}>
-        <span style={s.label}>Projects</span>
-        <button style={s.addBtn} onClick={() => setShowModal(true)} title="New project">+</button>
+        {!collapsed && <span style={s.label}>Projects</span>}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {!collapsed && <button style={s.addBtn} onClick={() => setShowModal(true)} title="New project">+</button>}
+          <button style={s.collapseBtn} onClick={onToggleCollapsed} title={collapsed ? 'Expand project sidebar' : 'Collapse project sidebar'}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              {collapsed ? <path d="m9 18 6-6-6-6" /> : <path d="m15 18-6-6 6-6" />}
+            </svg>
+          </button>
+        </div>
       </div>
 
+      {collapsed && (
+        <button style={{ ...s.addBtn, margin: '0 auto 8px', width: 30, height: 30 }} onClick={() => setShowModal(true)} title="New project">+</button>
+      )}
+
       <div style={s.list}>
-        {!projects.length && <div style={{ padding: '8px 12px', fontSize: 11.5, color: 'var(--text4)' }}>No projects</div>}
+        {!projects.length && !collapsed && <div style={{ padding: '8px 12px', fontSize: 11.5, color: 'var(--text4)' }}>No projects</div>}
         {projects.map(p => {
           const active = p['@id'] === currentProjectId;
           return (
             <div
               key={p['@id']}
               onClick={() => onSelect(p['@id'])}
-              style={{ padding: '8px 10px', borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9, background: active ? 'var(--primary-dim)' : 'transparent', marginBottom: 2 }}
+              title={collapsed ? p.name : undefined}
+              style={{
+                padding: collapsed ? 0 : '8px 10px', height: collapsed ? 34 : undefined,
+                borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : undefined, gap: 9,
+                background: active ? 'var(--primary-dim)' : 'transparent', marginBottom: collapsed ? 5 : 2,
+              }}
             >
-              <div style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, background: active ? 'var(--primary)' : 'var(--border2)' }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, color: active ? 'var(--primary-text)' : 'var(--text2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                <div style={{ fontSize: 10, color: 'var(--text4)', fontFamily: 'monospace' }}>{p['@id'].slice(0, 8)}</div>
-              </div>
-              <button
-                onClick={e => handleDelete(e, p['@id'], p.name)}
-                style={{ width: 18, height: 18, borderRadius: 4, border: 'none', background: 'transparent', color: 'var(--text4)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
+              <div style={{ width: collapsed ? 12 : 8, height: collapsed ? 12 : 8, borderRadius: collapsed ? 4 : 2, flexShrink: 0, background: active ? 'var(--primary)' : 'var(--border2)' }} />
+              {!collapsed && (
+                <>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, color: active ? 'var(--primary-text)' : 'var(--text2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text4)', fontFamily: 'monospace' }}>{p['@id'].slice(0, 8)}</div>
+                  </div>
+                  <button
+                    onClick={e => handleDelete(e, p['@id'], p.name)}
+                    style={{ width: 18, height: 18, borderRadius: 4, border: 'none', background: 'transparent', color: 'var(--text4)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </>
+              )}
             </div>
           );
         })}

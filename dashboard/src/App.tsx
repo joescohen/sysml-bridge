@@ -21,6 +21,9 @@ export function App() {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [sysonOnline, setSysonOnline] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isCompact, setIsCompact] = useState(() => window.innerWidth < 1100);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -37,6 +40,13 @@ export function App() {
     const id = setInterval(loadProjects, 30_000);
     return () => clearInterval(id);
   }, [loadProjects]);
+  useEffect(() => {
+    function onResize() {
+      setIsCompact(window.innerWidth < 1100);
+    }
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const currentProject = projects.find(p => p['@id'] === currentProjectId) ?? null;
 
@@ -47,7 +57,7 @@ export function App() {
   const layout = {
     wrapper: { display: 'flex', flexDirection: 'column' as const, height: '100vh' },
     header: { height: 52, padding: '0 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, background: 'var(--bg)', zIndex: 10 },
-    body: { display: 'grid', gridTemplateColumns: '248px 1fr 340px', flex: 1, minHeight: 0, overflow: 'hidden' },
+    body: { display: 'grid', gridTemplateColumns: `${sidebarCollapsed ? 54 : isCompact ? 220 : 248}px minmax(0, 1fr)`, flex: 1, minHeight: 0, overflow: 'hidden' },
     main: { overflowY: 'auto' as const, display: 'flex', flexDirection: 'column' as const },
   };
 
@@ -68,6 +78,8 @@ export function App() {
           currentProjectId={currentProjectId}
           onSelect={setCurrentProjectId}
           onProjectsChanged={loadProjects}
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={() => setSidebarCollapsed(v => !v)}
         />
 
         <main style={layout.main}>
@@ -119,8 +131,35 @@ export function App() {
           )}
         </main>
 
-        <ChatPanel project={currentProject} onModelChanged={handleModelChanged} />
       </div>
+
+      <button
+        onClick={() => setChatOpen(v => !v)}
+        style={{
+          position: 'fixed', right: 22, bottom: 22, zIndex: 70,
+          height: 42, padding: '0 14px', borderRadius: 10,
+          border: '1px solid var(--border2)', background: chatOpen ? 'var(--primary)' : 'var(--surface)',
+          color: chatOpen ? '#fff' : 'var(--text)', boxShadow: '0 18px 50px rgba(0,0,0,.38)',
+          display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', fontSize: 12, fontWeight: 700,
+        }}
+        title={chatOpen ? 'Close assistant' : 'Open assistant'}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z"/></svg>
+        {chatOpen ? 'Close Assistant' : 'MBSE Assistant'}
+      </button>
+
+      {chatOpen && (
+        <div
+          style={{
+            position: 'fixed', right: 22, top: 68, bottom: 76, zIndex: 60,
+            width: 'min(440px, calc(100vw - 44px))',
+            border: '1px solid var(--border2)', borderRadius: 12, overflow: 'hidden',
+            background: 'var(--surface)', boxShadow: '0 24px 80px rgba(0,0,0,.52)',
+          }}
+        >
+          <ChatPanel project={currentProject} onModelChanged={handleModelChanged} />
+        </div>
+      )}
     </div>
   );
 }

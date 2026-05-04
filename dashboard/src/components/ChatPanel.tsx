@@ -33,9 +33,26 @@ const TOOL_LABELS: Record<string, string> = {
   create_element: 'Created element',
   delete_element: 'Deleted element',
   create_diagram: 'Created diagram',
+  create_bdd_structure: 'Created BDD structure',
+  create_ibd_connection: 'Created IBD connection',
   export_sysml: 'Exported SysML',
   create_project: 'Created project',
 };
+
+const MBSE_COMMANDS = [
+  { command: '/mbse-init', purpose: 'Bootstrap project' },
+  { command: '/mbse-requirements', purpose: 'Requirements' },
+  { command: '/mbse-build bdd', purpose: 'Build BDD' },
+  { command: '/mbse-build ibd', purpose: 'Build IBD' },
+  { command: '/mbse-trace', purpose: 'Traceability' },
+  { command: '/mbse-validate', purpose: 'Validate model' },
+  { command: '/mbse-verify', purpose: 'V&V plan' },
+  { command: '/mbse-trade', purpose: 'Trade study' },
+  { command: '/mbse-kpp', purpose: 'KPP/MOE/MOP' },
+  { command: '/mbse-views', purpose: 'Stakeholder views' },
+  { command: '/mbse-diagram', purpose: 'Render diagrams' },
+  { command: '/mbse-query', purpose: 'Ask model' },
+];
 
 function escHtml(s: string) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -173,7 +190,7 @@ export function ChatPanel({ project, onModelChanged }: ChatPanelProps) {
         messages: [...c.messages, { role: 'assistant', content: accText, tools: [...tools] }],
       }));
 
-      const mutating = ['create_element', 'create_project', 'delete_element', 'create_diagram'];
+      const mutating = ['create_element', 'create_project', 'delete_element', 'create_diagram', 'create_bdd_structure', 'create_ibd_connection'];
       if (tools.some(t => mutating.includes(t.name) && t.status === 'done')) {
         onModelChanged();
       }
@@ -268,11 +285,25 @@ export function ChatPanel({ project, onModelChanged }: ChatPanelProps) {
             <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.6 }}>Ask me to query, create, or analyze your SysML model.</div>
             {pid && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', marginTop: 4 }}>
-                {['List all elements in this project', 'Create a PartDefinition called Sensor', 'Create a General View diagram for this project'].map(q => (
+                {[
+                  'List all elements in this project',
+                  'Create a PartDefinition called Sensor',
+                  'Create a BDD structure for ANGARS with Guidance Navigation, Command Control, Communications, Fuel Transfer, Power, and Processing',
+                  'Create a General View diagram for this project',
+                ].map(q => (
                   <button key={q} onClick={() => sendMessage(q)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', fontSize: 11, cursor: 'pointer', textAlign: 'left' }}>
                     {q}
                   </button>
                 ))}
+                <div style={{ marginTop: 8, fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text3)', textAlign: 'left' }}>MBSE workflow</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
+                  {MBSE_COMMANDS.map(item => (
+                    <button key={item.command} title={item.purpose} onClick={() => sendMessage(item.command)} style={{ minWidth: 0, padding: '7px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', fontSize: 10.5, cursor: 'pointer', textAlign: 'left', overflow: 'hidden' }}>
+                      <span style={{ display: 'block', color: '#e5e7eb', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.command}</span>
+                      <span style={{ display: 'block', marginTop: 2, color: 'var(--text3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.purpose}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -343,7 +374,7 @@ export function ChatPanel({ project, onModelChanged }: ChatPanelProps) {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
-          placeholder={pid ? 'Ask about your model…' : 'Select a project first'}
+          placeholder={pid ? 'Ask about your model or type /mbse-build bdd…' : 'Select a project first'}
           disabled={!pid}
           rows={1}
         />
