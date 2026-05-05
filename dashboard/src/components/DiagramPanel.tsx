@@ -8,9 +8,11 @@ interface DiagramPanelProps {
   projectId: string;
   elements: SysONElement[];
   refreshKey?: number;
+  sysonElementId?: string | null;
+  onClearElementNav?: () => void;
 }
 
-export function DiagramPanel({ projectId, elements, refreshKey }: DiagramPanelProps) {
+export function DiagramPanel({ projectId, elements, refreshKey, sysonElementId, onClearElementNav }: DiagramPanelProps) {
   const [activeSysOnTab, setActiveSysOnTab] = useState(0);
   const [activeGenTab, setActiveGenTab] = useState(0);
   const [source, setSource] = useState<'syson' | 'generated'>('syson');
@@ -32,14 +34,14 @@ export function DiagramPanel({ projectId, elements, refreshKey }: DiagramPanelPr
     all.findIndex(other => other.label === rep.label) === idx
   );
 
-  type SysOnTab = { key: string; label: string; kind: 'syson'; repId: string };
+  type SysOnTab = { key: string; label: string; kind: 'syson'; repId: string; targetObjectId?: string };
   type GenTab =
     | { key: string; label: string; kind: 'bdd' }
     | { key: string; label: string; kind: 'state' }
     | { key: string; label: string; kind: 'ibd' };
 
   const sysonTabs: SysOnTab[] = visibleRepresentations.map(r => ({
-    key: r.id, label: r.label, kind: 'syson', repId: r.id,
+    key: r.id, label: r.label, kind: 'syson', repId: r.id, targetObjectId: r.targetObjectId,
   }));
 
   const genTabs: GenTab[] = [
@@ -48,14 +50,23 @@ export function DiagramPanel({ projectId, elements, refreshKey }: DiagramPanelPr
     ...(hasPortUsage ? [{ key: 'gen-ibd', label: 'IBD', kind: 'ibd' as const }] : []),
   ];
 
-  // Auto-switch source if one side is empty
-  const effectiveSource = (source === 'syson' && !sysonTabs.length && genTabs.length)
+  // When element nav is active, find the matching representation by targetObjectId
+  const matchedSysOnIdx = sysonElementId
+    ? sysonTabs.findIndex(t => t.targetObjectId === sysonElementId)
+    : -1;
+
+  // Auto-switch source if one side is empty; element nav forces syson
+  const effectiveSource = sysonElementId
+    ? 'syson'
+    : (source === 'syson' && !sysonTabs.length && genTabs.length)
     ? 'generated'
     : (source === 'generated' && !genTabs.length && sysonTabs.length)
     ? 'syson'
     : source;
 
-  const safeSysOn = Math.min(activeSysOnTab, Math.max(sysonTabs.length - 1, 0));
+  const safeSysOn = sysonElementId && matchedSysOnIdx >= 0
+    ? matchedSysOnIdx
+    : Math.min(activeSysOnTab, Math.max(sysonTabs.length - 1, 0));
   const safeGen   = Math.min(activeGenTab, Math.max(genTabs.length - 1, 0));
 
   const activeSysOnTab_ = sysonTabs[safeSysOn];
@@ -90,7 +101,7 @@ export function DiagramPanel({ projectId, elements, refreshKey }: DiagramPanelPr
           {(['syson', 'generated'] as const).map(s => (
             <button
               key={s}
-              onClick={() => setSource(s)}
+              onClick={() => { onClearElementNav?.(); setSource(s); }}
               style={{
                 padding: '4px 10px', fontSize: 10, fontWeight: 700,
                 letterSpacing: '0.07em', textTransform: 'uppercase',
@@ -109,10 +120,10 @@ export function DiagramPanel({ projectId, elements, refreshKey }: DiagramPanelPr
         {/* Tabs for current source */}
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', flex: 1 }}>
           {effectiveSource === 'syson' && sysonTabs.map((t, i) => (
-            <span key={t.key}>{tabBtn(t.label, i === safeSysOn, () => setActiveSysOnTab(i))}</span>
+            <span key={t.key}>{tabBtn(t.label, i === safeSysOn, () => { onClearElementNav?.(); setActiveSysOnTab(i); })}</span>
           ))}
           {effectiveSource === 'generated' && genTabs.map((t, i) => (
-            <span key={t.key}>{tabBtn(t.label, i === safeGen, () => setActiveGenTab(i))}</span>
+            <span key={t.key}>{tabBtn(t.label, i === safeGen, () => { onClearElementNav?.(); setActiveGenTab(i); })}</span>
           ))}
         </div>
       </div>
@@ -120,7 +131,9 @@ export function DiagramPanel({ projectId, elements, refreshKey }: DiagramPanelPr
       {/* Diagram content */}
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
         {effectiveSource === 'syson' && (
-          noSysOn ? (
+          sysonElementId && matchedSysOnIdx < 0 ? (
+            <EmptyMsg>No SysON diagram for this element. Try creating one from the assistant.</EmptyMsg>
+          ) : noSysOn ? (
             <EmptyMsg>No SysON diagrams yet. Ask the assistant to create a diagram view.</EmptyMsg>
           ) : activeSysOnTab_?.kind === 'syson' && (
             <iframe

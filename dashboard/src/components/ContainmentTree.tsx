@@ -209,7 +209,7 @@ function TypeIcon({ type }: { type: string }) {
   );
 }
 
-function TreeNodeRow({ node, depth }: { node: TreeNode; depth: number }) {
+function TreeNodeRow({ node, depth, onElementClick }: { node: TreeNode; depth: number; onElementClick?: (elementId: string) => void }) {
   const [expanded, setExpanded] = useState(depth < 2);
   const hasChildren = node.children.length > 0;
   const name = node.element.declaredName ?? node.element.name ?? '<unnamed>';
@@ -224,14 +224,18 @@ function TreeNodeRow({ node, depth }: { node: TreeNode; depth: number }) {
           gap: 5,
           padding: '2.5px 8px',
           paddingLeft: depth * 16 + 8,
-          cursor: hasChildren ? 'pointer' : 'default',
+          cursor: 'pointer',
           borderRadius: 3,
           fontSize: 12,
         }}
         className="tree-row"
-        onClick={() => hasChildren && setExpanded(e => !e)}
+        title="Open in SysON"
+        onClick={() => onElementClick?.(node.element['@id'])}
       >
-        <span style={{ width: 12, textAlign: 'center', fontSize: 9, color: 'var(--text4)', flexShrink: 0 }}>
+        <span
+          style={{ width: 12, textAlign: 'center', fontSize: 9, color: 'var(--text4)', flexShrink: 0 }}
+          onClick={e => { e.stopPropagation(); hasChildren && setExpanded(ex => !ex); }}
+        >
           {hasChildren ? (expanded ? '▾' : '▸') : ''}
         </span>
         <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
@@ -241,7 +245,7 @@ function TreeNodeRow({ node, depth }: { node: TreeNode; depth: number }) {
         <span style={{ color: 'var(--text4)', fontSize: 9, fontFamily: 'monospace', flexShrink: 0, opacity: 0.6 }}>{type.replace(/(Definition|Usage)$/, m => m === 'Definition' ? ' def' : '')}</span>
       </div>
       {expanded && node.children.map(child => (
-        <TreeNodeRow key={child.element['@id']} node={child} depth={depth + 1} />
+        <TreeNodeRow key={child.element['@id']} node={child} depth={depth + 1} onElementClick={onElementClick} />
       ))}
     </>
   );
@@ -249,9 +253,10 @@ function TreeNodeRow({ node, depth }: { node: TreeNode; depth: number }) {
 
 interface ContainmentTreeProps {
   roots: TreeNode[];
+  onElementClick?: (elementId: string) => void;
 }
 
-export function ContainmentTree({ roots }: ContainmentTreeProps) {
+export function ContainmentTree({ roots, onElementClick }: ContainmentTreeProps) {
   if (!roots.length) {
     return (
       <div style={{ padding: 16, color: 'var(--text4)', fontSize: 12, textAlign: 'center' }}>
@@ -263,7 +268,7 @@ export function ContainmentTree({ roots }: ContainmentTreeProps) {
   return (
     <div style={{ padding: '4px 0' }}>
       {roots.map(root => (
-        <TreeNodeRow key={root.element['@id']} node={root} depth={0} />
+        <TreeNodeRow key={root.element['@id']} node={root} depth={0} onElementClick={onElementClick} />
       ))}
     </div>
   );

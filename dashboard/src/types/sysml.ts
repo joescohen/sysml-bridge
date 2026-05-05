@@ -20,4 +20,5 @@ export interface Representation {
   id: string;
   label: string;
   kind: string;
+  targetObjectId?: string;
 }

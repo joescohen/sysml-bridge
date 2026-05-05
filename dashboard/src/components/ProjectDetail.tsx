@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Project, SysONElement } from '../types/sysml';
 import { getElements } from '../lib/api';
 import { buildContainmentTree } from '../lib/containment';
@@ -16,9 +16,13 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [treeCollapsed, setTreeCollapsed] = useState(false);
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const fetchInFlight = useRef(false);
 
   const projectId = project['@id'];
   const load = useCallback(async () => {
+    if (fetchInFlight.current) return;
+    fetchInFlight.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -28,10 +32,30 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
       setElements([]);
     } finally {
       setLoading(false);
+      fetchInFlight.current = false;
+    }
+  }, [projectId]);
+
+  const backgroundLoad = useCallback(async () => {
+    if (fetchInFlight.current) return;
+    fetchInFlight.current = true;
+    try {
+      const els = await getElements(projectId);
+      setElements(els);
+      setError(null);
+    } catch {
+      // silently ignore background refresh failures
+    } finally {
+      fetchInFlight.current = false;
     }
   }, [projectId]);
 
   useEffect(() => { load(); }, [load, refreshKey]);
+
+  useEffect(() => {
+    const id = setInterval(backgroundLoad, 30_000);
+    return () => clearInterval(id);
+  }, [backgroundLoad]);
 
   const roots = !loading && !error ? buildContainmentTree(elements) : [];
 
@@ -60,9 +84,31 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
         <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--text4)' }}>{project['@id'].slice(0, 8)}</div>
         <div style={{ flex: 1 }} />
         {!loading && !error && (
-          <div style={{ fontSize: 10, color: 'var(--text4)', fontFamily: 'monospace' }}>
-            {elements.filter(e => !e['@type'].endsWith('Membership')).length} elements
-          </div>
+          <>
+            <div style={{ fontSize: 10, color: 'var(--text4)', fontFamily: 'monospace' }}>
+              {elements.filter(e => !e['@type'].endsWith('Membership')).length} elements
+            </div>
+            <a
+              href={`/api/projects/${projectId}/export`}
+              download
+              title="Export SysML v2 textual notation"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '3px 9px', borderRadius: 5,
+                border: '1px solid var(--border2)',
+                background: 'transparent', color: 'var(--text3)',
+                fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                textDecoration: 'none', flexShrink: 0,
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Export .sysml
+            </a>
+          </>
         )}
       </div>
 
@@ -127,14 +173,23 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
             {/* Tree content — scrollable */}
             {!treeCollapsed && (
               <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-                <ContainmentTree roots={roots} />
+                <ContainmentTree
+                  roots={roots}
+                  onElementClick={setSelectedElementId}
+                />
               </div>
             )}
           </div>
 
           {/* Diagram area — fills remaining space */}
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <DiagramPanel projectId={projectId} elements={elements} refreshKey={refreshKey} />
+            <DiagramPanel
+              projectId={projectId}
+              elements={elements}
+              refreshKey={refreshKey}
+              sysonElementId={selectedElementId}
+              onClearElementNav={() => setSelectedElementId(null)}
+            />
           </div>
 
         </div>
