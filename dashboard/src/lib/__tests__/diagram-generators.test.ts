@@ -13,13 +13,16 @@ const elements: SysONElement[] = [
 ];
 
 describe('buildBDDModel', () => {
-  it('uses top-level PartDefinition as root, PartUsages as children', () => {
+  it('uses top-level PartDefinition as root, PartUsages listed as parts', () => {
     const model = buildBDDModel(elements);
 
-    expect(model.root).toEqual({ id: 'systemDef', name: 'VehicleSystem', childIds: ['guidanceUsage', 'controlUsage'] });
-    expect(model.blocks.map(b => b.id)).toEqual(['systemDef', 'guidanceUsage', 'controlUsage']);
+    // root is a legacy field — only check id/name, not childIds (which is for backward compat only)
+    expect(model.root?.id).toBe('systemDef');
+    expect(model.root?.name).toBe('VehicleSystem');
+    // blocks contains only PartDefinitions; PartUsages appear in block.parts
+    expect(model.blocks.map(b => b.id)).toEqual(['systemDef']);
     expect(model.blocks.find(b => b.id === 'systemDef')?.stereotype).toBe('part def');
-    expect(model.blocks.find(b => b.id === 'guidanceUsage')?.stereotype).toBe('part');
+    expect(model.blocks.find(b => b.id === 'systemDef')?.parts.map(p => p.name)).toEqual(['guidance', 'control']);
   });
 
   it('shows ports on the owning block', () => {
@@ -35,7 +38,7 @@ describe('buildBDDModel', () => {
 });
 
 describe('buildStateMachineModel', () => {
-  it('finds state usages and transition usages', () => {
+  it('finds state usages and transition usages (TransitionUsage)', () => {
     const model = buildStateMachineModel([
       { '@id': 's1', '@type': 'StateUsage', declaredName: 'Idle' },
       { '@id': 's2', '@type': 'StateUsage', declaredName: 'Refueling' },
@@ -50,5 +53,50 @@ describe('buildStateMachineModel', () => {
 
     expect(model.states.map(s => s.name)).toEqual(['Idle', 'Refueling']);
     expect(model.transitions).toEqual([{ id: 't1', name: 'start', sourceId: 's1', targetId: 's2' }]);
+  });
+
+  it('finds transitions created via SuccessionAsUsage (insertTextualSysMLv2 path)', () => {
+    // SysON's REST commit API cannot create new elements; insertTextualSysMLv2 with
+    // "succession first X then Y" creates SuccessionAsUsage with persisted source/target.
+    const model = buildStateMachineModel([
+      { '@id': 's1', '@type': 'StateUsage', declaredName: 'Idle' },
+      { '@id': 's2', '@type': 'StateUsage', declaredName: 'Flying' },
+      { '@id': 's3', '@type': 'StateUsage', declaredName: 'Landing' },
+      {
+        '@id': 'su1',
+        '@type': 'SuccessionAsUsage',
+        declaredName: 'idle_to_flying',
+        source: [{ '@id': 's1' }],
+        target: [{ '@id': 's2' }],
+      } as SysONElement,
+      {
+        '@id': 'su2',
+        '@type': 'SuccessionAsUsage',
+        declaredName: 'flying_to_landing',
+        source: [{ '@id': 's2' }],
+        target: [{ '@id': 's3' }],
+      } as SysONElement,
+    ]);
+
+    expect(model.states.map(s => s.name)).toEqual(['Idle', 'Flying', 'Landing']);
+    expect(model.transitions).toHaveLength(2);
+    expect(model.transitions[0]).toEqual({ id: 'su1', name: 'idle_to_flying', sourceId: 's1', targetId: 's2' });
+    expect(model.transitions[1]).toEqual({ id: 'su2', name: 'flying_to_landing', sourceId: 's2', targetId: 's3' });
+  });
+
+  it('excludes SuccessionAsUsage whose endpoints are not states (activity successions)', () => {
+    const model = buildStateMachineModel([
+      { '@id': 'a1', '@type': 'ActionUsage', declaredName: 'Compute' },
+      { '@id': 'a2', '@type': 'ActionUsage', declaredName: 'Actuate' },
+      {
+        '@id': 'su1',
+        '@type': 'SuccessionAsUsage',
+        declaredName: 'compute_to_actuate',
+        source: [{ '@id': 'a1' }],
+        target: [{ '@id': 'a2' }],
+      } as SysONElement,
+    ]);
+
+    expect(model.transitions).toHaveLength(0);
   });
 });

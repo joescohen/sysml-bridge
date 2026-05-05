@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import type { Project, SysONElement } from '../types/sysml';
 import { getElements } from '../lib/api';
 import { buildContainmentTree } from '../lib/containment';
@@ -17,26 +17,24 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
   const [error, setError] = useState<string | null>(null);
   const [treeCollapsed, setTreeCollapsed] = useState(false);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
-  const fetchInFlight = useRef(false);
-
   const projectId = project['@id'];
-  const load = useCallback(async () => {
-    if (fetchInFlight.current) return;
-    fetchInFlight.current = true;
+
+  useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    try {
-      setElements(await getElements(projectId));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load elements');
-      setElements([]);
-    } finally {
-      setLoading(false);
-      fetchInFlight.current = false;
-    }
-  }, [projectId]);
-
-  useEffect(() => { load(); }, [load, refreshKey]);
+    getElements(projectId).then(els => {
+      if (!cancelled) setElements(els);
+    }).catch(err => {
+      if (!cancelled) {
+        setError(err instanceof Error ? err.message : 'Failed to load elements');
+        setElements([]);
+      }
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [projectId, refreshKey]);
 
 
   const roots = !loading && !error ? buildContainmentTree(elements) : [];

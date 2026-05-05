@@ -1,83 +1,10 @@
-services:
-  db:
-    image: postgres:15
-    restart: always
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=mysecretpassword
-      - POSTGRES_DB=sysml2
-    ports:
-      - "5432:5432"
-    volumes:
-      - sysml-data:/var/lib/postgresql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  sysml-api:
-    image: mbsemashup/sysmlv2-api.pilotimpl:latest
-    platform: linux/amd64
-    tty: false
-    environment:
-      - HIBERNATE_SHOW_SQL=false
-      - HIBERNATE_HBM2DDL=update
-      - JDBC_DRIVER=org.postgresql.Driver
-      - HIBERNATE_DIALECT=org.hibernate.dialect.PostgreSQLDialect
-      - JDBC_URL=jdbc:postgresql://db:5432/sysml2
-      - JDBC_USER=postgres
-      - JDBC_PASSWORD=mysecretpassword
-    ports:
-      - "9000:9000"
-    restart: always
-    depends_on:
-      db:
-        condition: service_healthy
-
-  jupyter:
-    image: mbsemashup/sysmlv2-jupyter:latest
-    platform: linux/amd64
-    environment:
-      - SYSML2_API_BASE_URL=http://sysml-api:9000
-    ports:
-      - "8888:8888"
-    restart: always
-    depends_on:
-      - sysml-api
-
-  syson-db:
-    image: postgres:15
-    restart: always
-    environment:
-      - POSTGRES_USER=syson
-      - POSTGRES_PASSWORD=syson
-      - POSTGRES_DB=syson
-    volumes:
-      - syson-data:/var/lib/postgresql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U syson"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  syson:
-    image: eclipsesyson/syson:latest
-    platform: linux/amd64
-    environment:
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://syson-db:5432/syson
-      - SPRING_DATASOURCE_USERNAME=syson
-      - SPRING_DATASOURCE_PASSWORD=syson
-      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
-    ports:
-      - "8080:8080"
-    restart: always
-    depends_on:
-      syson-db:
-        condition: service_healthy
-
-volumes:
-  sysml-data:
-    driver: local
-  syson-data:
-    driver: local
+# All Docker services run on the Windows desktop (10.0.0.111).
+# See C:\Users\jsc61\syson\docker-compose.yml on that machine.
+#
+# Start tunnel from Mac:
+#   autossh -N -L 8080:localhost:8080 -L 9000:localhost:9000 -L 8888:localhost:8888 winserver
+#
+# Ports forwarded:
+#   8080 → SysON
+#   9000 → sysml-api
+#   8888 → Jupyter

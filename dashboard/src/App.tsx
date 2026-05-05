@@ -65,7 +65,7 @@ export function App() {
         <span style={{ color: 'var(--border2)' }}>·</span>
         <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'monospace' }}>SysON :8080</span>
         <div style={{ flex: 1 }} />
-        <button onClick={loadProjects} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border2)', background: 'transparent', color: 'var(--text3)', fontSize: 11, cursor: 'pointer' }}>↻ refresh</button>
+        <button onClick={() => { loadProjects(); setRefreshKey(k => k + 1); }} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border2)', background: 'transparent', color: 'var(--text3)', fontSize: 11, cursor: 'pointer' }}>↻ refresh</button>
       </header>
 
       <div style={layout.body}>
