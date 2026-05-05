@@ -384,8 +384,15 @@ export function buildActivityModel(elements: SysONElement[]): ActivityModel {
       const toId   = tgts[0] && typeof tgts[0] === 'object' && '@id' in tgts[0]
         ? (tgts[0] as { '@id': string })['@id'] : undefined;
 
-      const from = fromId && nodeIds.has(fromId) ? fromId : (fromId ? undefined : startId);
-      const to   = toId   && nodeIds.has(toId)   ? toId   : (toId   ? undefined : endId);
+      // Use start/end sentinels only when the ref explicitly points to the
+      // owning ActionDefinition (SysML "first"/"then" succession endpoints).
+      // Absent refs do NOT fall back to sentinels — that produced phantom edges.
+      const from = fromId && nodeIds.has(fromId) ? fromId
+                 : fromId === defId              ? startId
+                 : undefined;
+      const to   = toId   && nodeIds.has(toId)   ? toId
+                 : toId   === defId              ? endId
+                 : undefined;
 
       if (from && to) {
         edges.push({ fromId: from, toId: to, label: elementName(e) || undefined });

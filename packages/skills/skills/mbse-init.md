@@ -34,6 +34,7 @@ There is no `.mbse-session.json` file. Track phase state conversationally:
 
 - `get_project_state`
 - `create_element`
+- `create_relationship`
 - `export_sysml`
 
 ## Output
