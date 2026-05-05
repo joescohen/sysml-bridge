@@ -209,11 +209,22 @@ function TypeIcon({ type }: { type: string }) {
   );
 }
 
+const FALLBACK_LABEL: Record<string, string> = {
+  FlowUsage: 'flow',
+  OccurrenceUsage: 'occurrence',
+};
+
+function fallbackLabel(type: string): string {
+  if (FALLBACK_LABEL[type]) return `«${FALLBACK_LABEL[type]}»`;
+  return `«${type.replace(/(Definition|Usage|Node)$/, '').toLowerCase()}»`;
+}
+
 function TreeNodeRow({ node, depth, onElementClick }: { node: TreeNode; depth: number; onElementClick?: (elementId: string) => void }) {
   const [expanded, setExpanded] = useState(depth < 2);
   const hasChildren = node.children.length > 0;
-  const name = node.element.declaredName ?? node.element.name ?? '<unnamed>';
   const type = node.element['@type'];
+  const rawName = node.element.declaredName ?? node.element.name;
+  const name = rawName ?? fallbackLabel(type);
 
   return (
     <>

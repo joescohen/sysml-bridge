@@ -51,6 +51,19 @@ const HIDDEN_TYPES = new Set([
   // Raw unnamed KerML feature base types (appear as unnamed library nodes)
   'Feature',
   'SuccessionAsUsage',
+  // Documentation is always a comment/annotation on another element, never standalone
+  'Documentation',
+  // RenderingUsage describes how a View renders its content — structural metadata, not a model element
+  'RenderingUsage',
+]);
+
+// Types that are internal plumbing when unnamed but meaningful when user-declared
+const HIDE_IF_UNNAMED = new Set([
+  // Anonymous succession endpoints hoisted from hidden SuccessionAsUsage nodes
+  'ReferenceUsage',
+  // Anonymous requirement/constraint relationships — only meaningful if explicitly named
+  'SatisfyRequirementUsage',
+  'AssertConstraintUsage',
 ]);
 
 // Container types that are meaningful even if unnamed (e.g., a root Namespace)
@@ -58,12 +71,14 @@ const CONTAINER_TYPES = new Set([
   'Package', 'Namespace', 'LibraryPackage',
 ]);
 
-function isHidden(type: string): boolean {
-  return type.endsWith('Membership') || HIDDEN_TYPES.has(type);
-}
-
 function hasUserName(el: SysONElement): boolean {
   return !!(el.declaredName || el.name);
+}
+
+function isHidden(type: string, el?: SysONElement): boolean {
+  if (type.endsWith('Membership') || HIDDEN_TYPES.has(type)) return true;
+  if (el && HIDE_IF_UNNAMED.has(type) && !hasUserName(el)) return true;
+  return false;
 }
 
 export function buildContainmentTree(elements: SysONElement[]): TreeNode[] {
@@ -79,11 +94,12 @@ export function buildContainmentTree(elements: SysONElement[]): TreeNode[] {
   }
 
   function buildNode(el: SysONElement): TreeNode | null {
-    if (isHidden(el['@type'])) return null;
+    if (isHidden(el['@type'], el)) return null;
     const directChildren = childrenOf.get(el['@id']) ?? [];
     const logicalChildren: TreeNode[] = [];
     for (const child of directChildren) {
-      if (isHidden(child['@type'])) {
+      if (isHidden(child['@type'], child)) {
+        // Hoist grandchildren of hidden nodes so they appear under the visible parent
         const grandchildren = childrenOf.get(child['@id']) ?? [];
         for (const gc of grandchildren) {
           const node = buildNode(gc);
@@ -101,7 +117,7 @@ export function buildContainmentTree(elements: SysONElement[]): TreeNode[] {
   //  (a) it has a user-declared name, OR
   //  (b) it is a container type (Package/Namespace) — those are meaningful even unnamed
   function isRootEligible(el: SysONElement): boolean {
-    if (isHidden(el['@type'])) return false;
+    if (isHidden(el['@type'], el)) return false;
     return hasUserName(el) || CONTAINER_TYPES.has(el['@type']);
   }
 
