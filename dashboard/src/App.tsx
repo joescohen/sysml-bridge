@@ -37,10 +37,6 @@ export function App() {
 
   useEffect(() => { loadProjects(); }, [loadProjects]);
   useEffect(() => {
-    const id = setInterval(loadProjects, 30_000);
-    return () => clearInterval(id);
-  }, [loadProjects]);
-  useEffect(() => {
     function onResize() {
       setIsCompact(window.innerWidth < 1100);
     }

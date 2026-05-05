@@ -36,26 +36,8 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
     }
   }, [projectId]);
 
-  const backgroundLoad = useCallback(async () => {
-    if (fetchInFlight.current) return;
-    fetchInFlight.current = true;
-    try {
-      const els = await getElements(projectId);
-      setElements(els);
-      setError(null);
-    } catch {
-      // silently ignore background refresh failures
-    } finally {
-      fetchInFlight.current = false;
-    }
-  }, [projectId]);
-
   useEffect(() => { load(); }, [load, refreshKey]);
 
-  useEffect(() => {
-    const id = setInterval(backgroundLoad, 30_000);
-    return () => clearInterval(id);
-  }, [backgroundLoad]);
 
   const roots = !loading && !error ? buildContainmentTree(elements) : [];
 

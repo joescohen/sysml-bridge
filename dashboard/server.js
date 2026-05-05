@@ -73,6 +73,7 @@ const CACHE_TTL_MS  = 300_000;  // 5 minutes — SysON takes ~26 s on first load
 function invalidateProjectCache(projectId) {
   commitIdCache.delete(projectId);
   elementCache.delete(projectId);
+  elementFetchBackoff.delete(projectId); // new data incoming — allow immediate re-fetch
 }
 
 function findFirstPackage(elements) {
@@ -586,7 +587,7 @@ async function ensureNamedChild(projectId, editingContextId, parentId, childLabe
 
 async function getRepresentations(editingContextId) {
   const data = await sysonGql(
-    `query($ecId: ID!) { viewer { editingContext(editingContextId: $ecId) { representations { edges { node { id label kind targetObjectId } } } } } }`,
+    `query($ecId: ID!) { viewer { editingContext(editingContextId: $ecId) { representations { edges { node { id label kind } } } } } }`,
     { ecId: editingContextId },
   );
   return data.viewer.editingContext.representations.edges.map(e => e.node);
@@ -815,6 +816,43 @@ async function executeTool(name, input, projectId) {
 
     if (name === 'create_element') {
       const ecId = await getEditingContextId(projectId);
+
+      // Idempotency: return existing element if same name+type already exists under this parent
+      const existingElements = await getAllElements(projectId);
+      const SYSML_TYPE_MAP = {
+        'Part Definition': 'PartDefinition', 'Part': 'PartUsage',
+        'State Definition': 'StateDefinition', 'State': 'StateUsage',
+        'Port Definition': 'PortDefinition', 'Port': 'PortUsage',
+        'Requirement Definition': 'RequirementDefinition', 'Requirement': 'RequirementUsage',
+        'Interface Definition': 'InterfaceDefinition', 'Interface': 'InterfaceUsage',
+        'Action Definition': 'ActionDefinition', 'Action': 'ActionUsage',
+        'Attribute Definition': 'AttributeDefinition', 'Attribute': 'AttributeUsage',
+        'Package': 'Package',
+      };
+      const sysmlType = SYSML_TYPE_MAP[input.element_type] ?? input.element_type;
+      const byId = new Map(existingElements.map(e => [e['@id'], e]));
+      function logicalOwnerOf(el) {
+        const visited = new Set();
+        let cur = el.owner?.['@id'];
+        while (cur) {
+          if (visited.has(cur)) return undefined;
+          visited.add(cur);
+          const o = byId.get(cur);
+          if (!o) return undefined;
+          if (!o['@type'].endsWith('Membership')) return o['@id'];
+          cur = o.owner?.['@id'];
+        }
+        return undefined;
+      }
+      const existing = existingElements.find(e =>
+        e['@type'] === sysmlType &&
+        (e.declaredName ?? e.name) === input.name &&
+        logicalOwnerOf(e) === input.parent_id
+      );
+      if (existing) {
+        return { success: true, already_existed: true, element: { id: existing['@id'], type: existing['@type'], name: input.name } };
+      }
+
       const createdObj = await createChildByLabel(ecId, input.parent_id, input.element_type, projectId);
 
       // Rename via REST commit — find the actual element ID
@@ -993,6 +1031,7 @@ async function executeTool(name, input, projectId) {
         'interface': 'InterfaceUsage', 'interfaceusage': 'InterfaceUsage',
         'expose': 'MembershipExpose', 'membershipexpose': 'MembershipExpose',
         'succession': 'SuccessionUsage', 'successionusage': 'SuccessionUsage',
+        'transition': 'TransitionUsage', 'transitionusage': 'TransitionUsage',
       };
       const normalized = input.relationship_type.toLowerCase().replace(/[\s_]+/g, '');
       const sysmlType = REL_TYPE_MAP[normalized] ?? input.relationship_type;
@@ -1001,6 +1040,66 @@ async function executeTool(name, input, projectId) {
       const byId = new Map(allElements.map(e => [e['@id'], e]));
       if (!byId.has(input.source_id)) return { error: `Source element not found: ${input.source_id}` };
       if (!byId.has(input.target_id)) return { error: `Target element not found: ${input.target_id}` };
+
+      // TransitionUsage: SysON's REST commit API only updates existing elements — it cannot
+      // create new ones, and it silently ignores source/target on TransitionUsage anyway.
+      // Correct approach: use insertTextualSysMLv2 with SysML v2 succession syntax
+      // ("succession <name> first <srcName> then <tgtName>;") which creates a
+      // SuccessionAsUsage with properly persisted source/target endpoints.
+      if (sysmlType === 'TransitionUsage') {
+        const srcEl = byId.get(input.source_id);
+        const tgtEl = byId.get(input.target_id);
+        const srcName = srcEl?.declaredName ?? srcEl?.name;
+        const tgtName = tgtEl?.declaredName ?? tgtEl?.name;
+        if (!srcName || !tgtName) return { error: 'Source or target element has no name — required for succession syntax' };
+
+        // Find the StateDefinition that logically owns the source state
+        function logicalOwner(el) {
+          const seen = new Set();
+          let cur = el?.owner?.['@id'];
+          while (cur) {
+            if (seen.has(cur)) return undefined;
+            seen.add(cur);
+            const o = byId.get(cur);
+            if (!o) return undefined;
+            if (!o['@type'].endsWith('Membership')) return o['@id'];
+            cur = o.owner?.['@id'];
+          }
+          return undefined;
+        }
+        const stateDef = input.parent_id
+          ? byId.get(input.parent_id)
+          : byId.get(logicalOwner(srcEl));
+        const ownerId = stateDef?.['@id'] ?? input.parent_id;
+        if (!ownerId) return { error: 'Could not find StateDefinition to own this transition. Provide parent_id.' };
+
+        const ecId = await getEditingContextId(projectId);
+        const relName = input.name ?? `${srcName}_to_${tgtName}`;
+        // SysML v2 succession syntax — creates SuccessionAsUsage with persisted source/target
+        const sysmlText = `succession ${relName} first ${srcName} then ${tgtName};`;
+        const gqlResult = await sysonGql(
+          `mutation($input: InsertTextualSysMLv2Input!) { insertTextualSysMLv2(input: $input) { __typename ... on ErrorPayload { message } } }`,
+          { input: { id: randomUUID(), editingContextId: ecId, objectId: ownerId, textualContent: sysmlText } },
+        );
+        const payload = gqlResult.insertTextualSysMLv2;
+        if (payload.__typename !== 'SuccessPayload') {
+          return { error: `SysON rejected succession: ${payload.message}` };
+        }
+        invalidateProjectCache(projectId);
+
+        // Auto-create State Transition View if none exists for this StateDefinition
+        if (stateDef?.['@type'] === 'StateDefinition') {
+          try {
+            const reps = await getRepresentations(ecId);
+            const viewName = `${stateDef.declaredName ?? stateDef.name ?? 'State Machine'} State Machine`;
+            if (!reps.find(r => r.label === viewName || /state\s*transition/i.test(r.label))) {
+              await createRepresentation(ecId, stateDef['@id'], 'State Transition View', viewName);
+            }
+          } catch (e) { /* non-fatal */ }
+        }
+
+        return { success: true, relationship: { type: 'SuccessionAsUsage', name: relName, source: input.source_id, target: input.target_id } };
+      }
 
       const parentId = input.parent_id ?? findFirstPackage(allElements);
       if (!parentId) return { error: 'No Package found to own the relationship' };
@@ -1275,7 +1374,8 @@ CONNECTIONS & RELATIONSHIPS
 • create_relationship(relationship_type, source_id, target_id, [name], [parent_id])
   - Creates typed SysML v2 relationships persisted in SysON
   - Supported types: Allocation, Dependency, SatisfyRequirementUsage, VerifyRequirementUsage,
-    FeatureTyping, Subsetting, Redefinition, FlowConnectionUsage, BindingConnector, InterfaceUsage
+    FeatureTyping, Subsetting, Redefinition, FlowConnectionUsage, BindingConnector, InterfaceUsage,
+    TransitionUsage, SuccessionUsage
 • query_relationships([element_id], [type_filter]) — surface all relationship elements from SysON
   with source, target, and connectorEnd data
 
@@ -1535,6 +1635,13 @@ Routing rules:
             Do NOT use create_ibd_connection (deprecated) or create_element("Connection").
   STEP 3 — validate_model() to confirm no broken connectorEnd refs or orphaned ports.
   STEP 4 — create_diagram(partDefId, "Interconnection View", name) to create SysON IBD view.
+
+/mbse-build state:
+  STEP 1 — create_element("State Definition", name, packageId) to define the state machine type.
+  STEP 2 — create_element("State", stateName, stateDefId) for each state (creates StateUsage).
+  STEP 3 — create_relationship("TransitionUsage", fromStateId, toStateId) for each transition.
+  STEP 4 — create_diagram(stateDefId, "State Transition View", name) to create the SysON view.
+  The Generated → State Machine tab picks up StateUsage + StateDefinition + TransitionUsage elements automatically.
 
 /mbse-trace:
   Use create_relationship(SatisfyRequirementUsage, partId, reqId) and

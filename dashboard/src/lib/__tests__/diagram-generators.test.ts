@@ -2,27 +2,35 @@ import { describe, expect, it } from 'vitest';
 import { buildBDDModel, buildStateMachineModel } from '../diagram-generators';
 import type { SysONElement } from '../../types/sysml';
 
+// Hierarchy: pkg → systemDef (PartDefinition) → [guidanceUsage, controlUsage] (PartUsage)
+//            guidancePort (PortUsage owned by systemDef)
 const elements: SysONElement[] = [
   { '@id': 'pkg', '@type': 'Package', declaredName: 'Vehicle' },
-  { '@id': 'guidance', '@type': 'PartDefinition', declaredName: 'Guidance', owner: { '@id': 'pkg' } },
-  { '@id': 'control', '@type': 'PartDefinition', declaredName: 'Control', owner: { '@id': 'pkg' } },
-  { '@id': 'nav', '@type': 'PortUsage', declaredName: 'navData', owner: { '@id': 'guidance' } },
-  { '@id': 'cmd', '@type': 'PortUsage', declaredName: 'command', owner: { '@id': 'control' } },
+  { '@id': 'systemDef', '@type': 'PartDefinition', declaredName: 'VehicleSystem', owner: { '@id': 'pkg' } },
+  { '@id': 'guidanceUsage', '@type': 'PartUsage', declaredName: 'guidance', owner: { '@id': 'systemDef' } },
+  { '@id': 'controlUsage', '@type': 'PartUsage', declaredName: 'control', owner: { '@id': 'systemDef' } },
+  { '@id': 'navPort', '@type': 'PortUsage', declaredName: 'navData', owner: { '@id': 'systemDef' } },
 ];
 
 describe('buildBDDModel', () => {
-  it('builds named blocks with their directly owned ports', () => {
-    const model = buildBDDModel(elements, 'ANGARS');
+  it('uses top-level PartDefinition as root, PartUsages as children', () => {
+    const model = buildBDDModel(elements);
 
-    expect(model.root).toEqual({ id: 'root:ANGARS', name: 'ANGARS', childIds: ['guidance', 'control'] });
-    expect(model.blocks).toEqual([
-      { id: 'guidance', name: 'Guidance', ports: ['navData'] },
-      { id: 'control', name: 'Control', ports: ['command'] },
-    ]);
+    expect(model.root).toEqual({ id: 'systemDef', name: 'VehicleSystem', childIds: ['guidanceUsage', 'controlUsage'] });
+    expect(model.blocks.map(b => b.id)).toEqual(['systemDef', 'guidanceUsage', 'controlUsage']);
+    expect(model.blocks.find(b => b.id === 'systemDef')?.stereotype).toBe('part def');
+    expect(model.blocks.find(b => b.id === 'guidanceUsage')?.stereotype).toBe('part');
   });
 
-  it('returns empty blocks when no part definitions exist', () => {
-    expect(buildBDDModel([{ '@id': 'pkg', '@type': 'Package', declaredName: 'Empty' }]).blocks).toEqual([]);
+  it('shows ports on the owning block', () => {
+    const model = buildBDDModel(elements);
+    expect(model.blocks.find(b => b.id === 'systemDef')?.ports).toEqual(['navData']);
+  });
+
+  it('returns empty when no PartDefinition elements exist', () => {
+    const model = buildBDDModel([{ '@id': 'pkg', '@type': 'Package', declaredName: 'Empty' }]);
+    expect(model.blocks).toEqual([]);
+    expect(model.root).toBeUndefined();
   });
 });
 
