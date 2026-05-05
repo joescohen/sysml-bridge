@@ -23,9 +23,13 @@ export function DiagramPanel({ projectId, elements, refreshKey, sysonElementId, 
   const [representations, setRepresentations] = useState<Representation[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
     setActiveSysOnTab(0);
     setActiveGenTab(0);
-    getRepresentations(projectId).then(setRepresentations).catch(() => setRepresentations([]));
+    getRepresentations(projectId)
+      .then(r => { if (!cancelled) setRepresentations(r); })
+      .catch(() => { if (!cancelled) setRepresentations([]); });
+    return () => { cancelled = true; };
   }, [projectId, refreshKey]);
 
   const hasPortUsage    = elements.some(e => e['@type'] === 'PortUsage');
@@ -89,6 +93,17 @@ export function DiagramPanel({ projectId, elements, refreshKey, sysonElementId, 
 
   const sysonBase = import.meta.env.VITE_SYSON_URL ?? 'http://localhost:8080';
 
+  function buildSysONUrl(base: string, pid: string, repId: string): string | null {
+    try {
+      const origin = new URL(base);
+      if (origin.protocol !== 'http:' && origin.protocol !== 'https:') return null;
+      const path = ['projects', encodeURIComponent(pid), 'edit', encodeURIComponent(repId)].join('/');
+      return `${origin.origin}/${path}`;
+    } catch {
+      return null;
+    }
+  }
+
   const tabBtn = (label: string, active: boolean, onClick: () => void) => (
     <button
       onClick={onClick}
@@ -113,7 +128,7 @@ export function DiagramPanel({ projectId, elements, refreshKey, sysonElementId, 
           {(['syson', 'generated'] as const).map(s => (
             <button
               key={s}
-              onClick={() => { onClearElementNav?.(); setSource(s); }}
+              onClick={() => { onClearElementNav?.(); setSource(s); setActiveSysOnTab(0); setActiveGenTab(0); }}
               style={{
                 padding: '4px 10px', fontSize: 10, fontWeight: 700,
                 letterSpacing: '0.07em', textTransform: 'uppercase',
@@ -142,16 +157,18 @@ export function DiagramPanel({ projectId, elements, refreshKey, sysonElementId, 
       {/* Diagram content */}
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
         {effectiveSource === 'syson' && (
-          sysonElementId && matchedSysOnIdx < 0 ? (
-            <EmptyMsg>No SysON diagram for this element. Try creating one from the assistant.</EmptyMsg>
-          ) : noSysOn ? (
+          noSysOn ? (
             <EmptyMsg>No SysON diagrams yet. Ask the assistant to create a diagram view.</EmptyMsg>
-          ) : activeSysOnTab_?.kind === 'syson' && (
-            <iframe
-              src={`${sysonBase}/projects/${projectId}/edit/${activeSysOnTab_.repId}`}
-              style={{ width: '100%', height: '100%', border: 'none' }}
-              title={activeSysOnTab_.label}
-            />
+          ) : activeSysOnTab_?.kind === 'syson' && (() => {
+            const iframeSrc = buildSysONUrl(sysonBase, projectId, activeSysOnTab_.repId);
+            return iframeSrc ? (
+              <iframe
+                src={iframeSrc}
+                style={{ width: '100%', height: '100%', border: 'none' }}
+                title={activeSysOnTab_.label}
+              />
+            ) : null;
+          })()
           )
         )}
 
@@ -304,7 +321,7 @@ function RequirementCard({ node, depth }: { node: RequirementNode; depth: number
         )}
       </div>
       {node.children.map(child => (
-        <RequirementCard key={child.id} node={child} depth={1} />
+        <RequirementCard key={child.id} node={child} depth={depth + 1} />
       ))}
     </div>
   );

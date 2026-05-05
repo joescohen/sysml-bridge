@@ -42,24 +42,42 @@ export function transformToIBD(
   for (const el of elements) byId.set(el['@id'], el);
 
   const partDefs = elements.filter(e => e['@type'] === 'PartDefinition');
+  const partDefIds = new Set(partDefs.map(e => e['@id']));
   const portUsages = elements.filter(e => e['@type'] === 'PortUsage');
-  const connections = elements.filter(e => e['@type'] === 'ConnectionUsage');
+  const connections = elements.filter(e => e['@type'] === 'ConnectionUsage' || e['@type'] === 'InterfaceUsage');
 
-  // Build port→block lookup for determining left/right sides
+  // FeatureTyping: feature (PartUsage) → typed PartDefinition
+  const featureTypeMap = new Map<string, string>();
+  for (const el of elements) {
+    if (el['@type'] !== 'FeatureTyping') continue;
+    const srcs = Array.isArray(el.source) ? el.source : el.source ? [el.source] : [];
+    const tgts = Array.isArray(el.target) ? el.target : el.target ? [el.target] : [];
+    const srcId = srcs[0] && typeof srcs[0] === 'object' && '@id' in srcs[0] ? String((srcs[0] as { '@id': string })['@id']) : undefined;
+    const tgtId = tgts[0] && typeof tgts[0] === 'object' && '@id' in tgts[0] ? String((tgts[0] as { '@id': string })['@id']) : undefined;
+    if (srcId && tgtId) featureTypeMap.set(srcId, tgtId);
+  }
+
+  // Build port→block lookup: prefer PartDef owner, fall back to PartUsage's typed PartDef
   const portToBlock = new Map<string, string>();
   for (const p of portUsages) {
     const owner = resolveLogicalOwner(p, byId);
-    if (owner) portToBlock.set(p['@id'], owner);
+    if (!owner) continue;
+    if (partDefIds.has(owner)) {
+      portToBlock.set(p['@id'], owner);
+    } else {
+      const typeId = featureTypeMap.get(owner);
+      if (typeId && partDefIds.has(typeId)) portToBlock.set(p['@id'], typeId);
+    }
   }
 
   // Determine source vs target ports from both connectorEnd data and explicit topology edges
   const sourcePorts = new Set<string>();
   const targetPorts = new Set<string>();
 
-  // From connectorEnd (if present)
+  // From connectorEnd — try connectedFeature (ConnectionUsage) then direct @id ref (InterfaceUsage)
   for (const c of connections) {
-    const src = c.connectorEnd?.[0]?.connectedFeature?.['@id'];
-    const tgt = c.connectorEnd?.[1]?.connectedFeature?.['@id'];
+    const src = c.connectorEnd?.[0]?.connectedFeature?.['@id'] ?? c.connectorEnd?.[0]?.['@id'];
+    const tgt = c.connectorEnd?.[1]?.connectedFeature?.['@id'] ?? c.connectorEnd?.[1]?.['@id'];
     if (src) sourcePorts.add(src);
     if (tgt) targetPorts.add(tgt);
   }
@@ -73,7 +91,7 @@ export function transformToIBD(
   const blockIds = new Set(partDefs.map(b => b['@id']));
 
   const nodes: Node<SysMLBlockNodeData>[] = partDefs.map(block => {
-    const blockPorts = portUsages.filter(p => resolveLogicalOwner(p, byId) === block['@id']);
+    const blockPorts = portUsages.filter(p => portToBlock.get(p['@id']) === block['@id']);
     const ports: PortHandle[] = blockPorts.map(p => {
       // Classify: if it appears as source-only → right, target-only → left, both → right
       const isSource = sourcePorts.has(p['@id']);
@@ -101,8 +119,8 @@ export function transformToIBD(
   const edges: Edge[] = [];
   for (const c of connections) {
     if (!c.connectorEnd?.[0] || !c.connectorEnd?.[1]) continue;
-    const srcPortId = c.connectorEnd[0].connectedFeature?.['@id'];
-    const tgtPortId = c.connectorEnd[1].connectedFeature?.['@id'];
+    const srcPortId = c.connectorEnd[0].connectedFeature?.['@id'] ?? c.connectorEnd[0]['@id'];
+    const tgtPortId = c.connectorEnd[1].connectedFeature?.['@id'] ?? c.connectorEnd[1]['@id'];
     if (!srcPortId || !tgtPortId) continue;
     const srcBlock = portToBlock.get(srcPortId);
     const tgtBlock = portToBlock.get(tgtPortId);

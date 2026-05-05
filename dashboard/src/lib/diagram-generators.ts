@@ -146,12 +146,15 @@ export function buildBDDModel(elements: SysONElement[]): BDDModel {
     level:      levelMap.get(d['@id']) ?? 0,
   }));
 
-  // Legacy root: first block with no parents that has children (composition)
-  const legacy = blocks.find(b => !b.parentIds.length && b.parts.length > 0) ?? blocks[0];
+  // Sort: richest (most parts) blocks first within each level for visual prominence
+  blocks.sort((a, b) => (a.level - b.level) || (b.parts.length - a.parts.length) || a.name.localeCompare(b.name));
+
+  // Legacy root: block with no parents that has the most parts
+  const legacy = [...blocks].filter(b => !b.parentIds.length).sort((a, b) => b.parts.length - a.parts.length)[0] ?? blocks[0];
 
   return {
     blocks,
-    root: legacy ? { id: legacy.id, name: legacy.name, childIds: legacy.parts.map(() => '') } : undefined,
+    root: legacy ? { id: legacy.id, name: legacy.name, childIds: legacy.childIds } : undefined,
   };
 }
 
@@ -245,7 +248,6 @@ export function buildRequirementsModel(elements: SysONElement[]): RequirementsMo
 
   // Build tree using logical ownership
   const reqIds = new Set(reqEls.map(e => e['@id']));
-  const childrenOf = new Map<string, RequirementNode[]>();
   const allNodes = new Map<string, RequirementNode>();
 
   // Create all nodes first
@@ -276,11 +278,8 @@ export function buildRequirementsModel(elements: SysONElement[]): RequirementsMo
     }
     if (ownerId && reqIds.has(ownerId)) {
       allNodes.get(ownerId)!.children.push(allNodes.get(e['@id'])!);
-    } else {
-      // Top-level if owner is not another requirement
-      if (!childrenOf.has('root')) childrenOf.set('root', []);
-      childrenOf.get('root')!.push(allNodes.get(e['@id'])!);
     }
+    // else: top-level — collected below by finding nodes not a child of any other node
   }
 
   // Collect roots (not a child of another req node)
