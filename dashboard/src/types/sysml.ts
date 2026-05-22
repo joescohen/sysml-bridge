@@ -9,6 +9,10 @@ export interface SysONElement {
   connectorEnd?: Array<{ connectedFeature?: { '@id': string }; '@id'?: string }>;
   source?: Array<{ '@id': string }> | { '@id': string } | null;
   target?: Array<{ '@id': string }> | { '@id': string } | null;
+  body?: string | null;        // Documentation.body
+  isAbstract?: boolean;
+  isReadOnly?: boolean;
+  [key: string]: unknown;      // pass-through for other SysON fields
 }
 
 export interface Project {

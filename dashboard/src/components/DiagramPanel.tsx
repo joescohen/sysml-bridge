@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { IBDViewer } from './IBDViewer';
-import { getRepresentations } from '../lib/api';
+import { getRepresentations, patchElement, putDocumentation } from '../lib/api';
 import {
   buildBDDModel, buildStateMachineModel, buildRequirementsModel, buildActivityModel,
   type BDDModel, type StateMachineModel, type RequirementsModel, type ActivityModel,
@@ -14,9 +14,10 @@ interface DiagramPanelProps {
   refreshKey?: number;
   sysonElementId?: string | null;
   onClearElementNav?: () => void;
+  onRefresh?: () => void;
 }
 
-export function DiagramPanel({ projectId, elements, refreshKey, sysonElementId, onClearElementNav }: DiagramPanelProps) {
+export function DiagramPanel({ projectId, elements, refreshKey, sysonElementId, onClearElementNav, onRefresh }: DiagramPanelProps) {
   const [activeSysOnTab, setActiveSysOnTab] = useState(0);
   const [activeGenTab, setActiveGenTab] = useState(0);
   const [source, setSource] = useState<'syson' | 'generated'>('syson');
@@ -104,6 +105,10 @@ export function DiagramPanel({ projectId, elements, refreshKey, sysonElementId, 
     }
   }
 
+  const iframeSrc = activeSysOnTab_?.kind === 'syson'
+    ? buildSysONUrl(sysonBase, projectId, activeSysOnTab_.repId)
+    : null;
+
   const tabBtn = (label: string, active: boolean, onClick: () => void) => (
     <button
       onClick={onClick}
@@ -159,17 +164,13 @@ export function DiagramPanel({ projectId, elements, refreshKey, sysonElementId, 
         {effectiveSource === 'syson' && (
           noSysOn ? (
             <EmptyMsg>No SysON diagrams yet. Ask the assistant to create a diagram view.</EmptyMsg>
-          ) : activeSysOnTab_?.kind === 'syson' && (() => {
-            const iframeSrc = buildSysONUrl(sysonBase, projectId, activeSysOnTab_.repId);
-            return iframeSrc ? (
-              <iframe
-                src={iframeSrc}
-                style={{ width: '100%', height: '100%', border: 'none' }}
-                title={activeSysOnTab_.label}
-              />
-            ) : null;
-          })()
-          )
+          ) : iframeSrc ? (
+            <iframe
+              src={iframeSrc}
+              style={{ width: '100%', height: '100%', border: 'none' }}
+              title={activeSysOnTab_?.label ?? ''}
+            />
+          ) : null
         )}
 
         {effectiveSource === 'generated' && (
@@ -183,7 +184,7 @@ export function DiagramPanel({ projectId, elements, refreshKey, sysonElementId, 
             <div style={{ height: '100%', overflow: 'auto' }}>
               {activeGenTab_?.kind === 'bdd'          && <GeneratedBDD model={bddModel} />}
               {activeGenTab_?.kind === 'state'        && <GeneratedStateMachine model={stateModel} />}
-              {activeGenTab_?.kind === 'requirements' && <GeneratedRequirements model={reqModel} />}
+              {activeGenTab_?.kind === 'requirements' && <GeneratedRequirements model={reqModel} projectId={projectId} onRefresh={onRefresh} />}
               {activeGenTab_?.kind === 'activity'     && <GeneratedActivity model={activityModel} />}
             </div>
           )
@@ -203,13 +204,51 @@ function EmptyMsg({ children }: { children: React.ReactNode }) {
 
 // ── BDD renderer ──────────────────────────────────────────────────────────────
 
+type BDDEdge = { x1: number; y1: number; x2: number; y2: number };
+
 function GeneratedBDD({ model }: { model: BDDModel }) {
   const byId = new Map(model.blocks.map(b => [b.id, b]));
+  const containerRef = useRef<HTMLDivElement>(null);
+  const blockRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [edges, setEdges] = useState<BDDEdge[]>([]);
+  const edgesKey = useRef('');
 
-  // Group blocks by level for hierarchical display
   const maxLevel = Math.max(0, ...model.blocks.map(b => b.level));
   const byLevel: BDDModel['blocks'][] = Array.from({ length: maxLevel + 1 }, () => []);
   for (const b of model.blocks) byLevel[b.level].push(b);
+
+  // Measure block positions after layout and compute SVG edge coordinates.
+  // Runs after every render; the key comparison prevents infinite re-renders.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const cRect = container.getBoundingClientRect();
+
+    const newEdges: BDDEdge[] = [];
+    for (const block of model.blocks) {
+      const childEl = blockRefs.current.get(block.id);
+      if (!childEl) continue;
+      const cR = childEl.getBoundingClientRect();
+      for (const parentId of block.parentIds) {
+        const parentEl = blockRefs.current.get(parentId);
+        if (!parentEl) continue;
+        const pR = parentEl.getBoundingClientRect();
+        // Arrow: child top-center → parent bottom-center (hollow triangle at parent end)
+        newEdges.push({
+          x1: Math.round(cR.left + cR.width / 2 - cRect.left),
+          y1: Math.round(cR.top - cRect.top),
+          x2: Math.round(pR.left + pR.width / 2 - cRect.left),
+          y2: Math.round(pR.bottom - cRect.top),
+        });
+      }
+    }
+
+    const key = JSON.stringify(newEdges);
+    if (key !== edgesKey.current) {
+      edgesKey.current = key;
+      setEdges(newEdges);
+    }
+  });
 
   if (!model.blocks.length) {
     return (
@@ -221,80 +260,171 @@ function GeneratedBDD({ model }: { model: BDDModel }) {
   }
 
   return (
-    <div style={{ padding: 20, boxSizing: 'border-box' }}>
-      {byLevel.map((levelBlocks, level) => (
-        <div key={level}>
-          {level > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 8px', color: 'var(--text4)', fontSize: 10, letterSpacing: '0.06em' }}>
-              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-              <span style={{ fontFamily: 'monospace', textTransform: 'uppercase' }}>Level {level} — specialization</span>
-              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-            </div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
-            {levelBlocks.map(block => {
-              const parents = block.parentIds.map(pid => byId.get(pid)?.name ?? pid);
-              return (
-                <div key={block.id} style={{
-                  border: '1px solid',
-                  borderColor: block.parentIds.length ? 'var(--border2)' : 'var(--primary)',
-                  borderRadius: 6,
-                  background: 'var(--surface)',
-                  overflow: 'hidden',
-                  boxShadow: block.parentIds.length ? 'none' : '0 0 0 1px rgba(99,102,241,.2)',
-                }}>
-                  {/* Header */}
-                  <div style={{ padding: '7px 12px', borderBottom: '1px solid var(--border)', background: block.parentIds.length ? 'transparent' : 'rgba(99,102,241,.07)' }}>
-                    <div style={{ fontSize: 9, color: 'var(--primary-text)', marginBottom: 1 }}>«part def»</div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: '#f1f5f9', overflowWrap: 'anywhere' }}>{block.name}</div>
-                    {parents.length > 0 && (
-                      <div style={{ fontSize: 9, color: 'var(--text4)', fontFamily: 'monospace', marginTop: 2 }}>
-                        :{'>'} {parents.join(', ')}
+    <div ref={containerRef} style={{ position: 'relative', padding: 20, boxSizing: 'border-box' }}>
+      {/* SVG connection layer — sits behind block cards */}
+      {edges.length > 0 && (
+        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible', zIndex: 0 }}>
+          <defs>
+            {/* Hollow triangle arrowhead (UML generalization) pointing in line direction */}
+            <marker id="bdd-gen" markerWidth="14" markerHeight="14" refX="13" refY="7" orient="auto">
+              <polygon points="1,1 13,7 1,13" fill="var(--surface)" stroke="#6366f1" strokeWidth="1.5" strokeLinejoin="round" />
+            </marker>
+          </defs>
+          {edges.map((e, i) => {
+            // Cubic bezier: control points keep x fixed per endpoint so lines fan gracefully
+            const cpY1 = e.y1 + (e.y2 - e.y1) * 0.25;
+            const cpY2 = e.y1 + (e.y2 - e.y1) * 0.75;
+            return (
+              <path
+                key={i}
+                d={`M ${e.x1} ${e.y1} C ${e.x1} ${cpY1}, ${e.x2} ${cpY2}, ${e.x2} ${e.y2}`}
+                fill="none"
+                stroke="#6366f1"
+                strokeWidth="1.5"
+                strokeOpacity="0.7"
+                markerEnd="url(#bdd-gen)"
+              />
+            );
+          })}
+        </svg>
+      )}
+
+      {/* Block rows by specialization level */}
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        {byLevel.map((levelBlocks, level) => (
+          <div key={level}>
+            {level > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '36px 0 16px', color: 'var(--text4)', fontSize: 10, letterSpacing: '0.06em' }}>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                <span style={{ fontFamily: 'monospace', textTransform: 'uppercase' }}>Level {level} — specialization</span>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              </div>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center' }}>
+              {levelBlocks.map(block => {
+                const parents = block.parentIds.map(pid => byId.get(pid)?.name ?? pid);
+                return (
+                  <div
+                    key={block.id}
+                    ref={el => { if (el) blockRefs.current.set(block.id, el); else blockRefs.current.delete(block.id); }}
+                    style={{
+                      border: '1px solid',
+                      borderColor: block.parentIds.length ? 'var(--border2)' : 'var(--primary)',
+                      borderRadius: 6,
+                      background: 'var(--surface)',
+                      overflow: 'hidden',
+                      boxShadow: block.parentIds.length ? 'none' : '0 0 0 1px rgba(99,102,241,.2)',
+                      width: 200,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div style={{ padding: '7px 12px', borderBottom: '1px solid var(--border)', background: block.parentIds.length ? 'transparent' : 'rgba(99,102,241,.07)' }}>
+                      <div style={{ fontSize: 9, color: 'var(--primary-text)', marginBottom: 1 }}>«part def»</div>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: '#f1f5f9', overflowWrap: 'anywhere' }}>{block.name}</div>
+                      {parents.length > 0 && (
+                        <div style={{ fontSize: 9, color: 'var(--text4)', fontFamily: 'monospace', marginTop: 2 }}>
+                          :{'>'} {parents.join(', ')}
+                        </div>
+                      )}
+                    </div>
+
+                    {block.ports.length > 0 && (
+                      <div style={{ padding: '5px 12px', borderBottom: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: 9, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Ports</div>
+                        {block.ports.map(p => (
+                          <div key={p} style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'monospace', padding: '1px 0' }}>⬡ {p}</div>
+                        ))}
+                      </div>
+                    )}
+
+                    {block.parts.length > 0 && (
+                      <div style={{ padding: '5px 12px' }}>
+                        <div style={{ fontSize: 9, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Parts</div>
+                        {block.parts.map((p, i) => (
+                          <div key={i} style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'monospace', padding: '1px 0', overflowWrap: 'anywhere' }}>
+                            □ {p.name}{p.typeName ? ` : ${p.typeName}` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {!block.ports.length && !block.parts.length && (
+                      <div style={{ padding: '5px 12px' }}>
+                        <div style={{ fontSize: 11, color: 'var(--text4)' }}>—</div>
                       </div>
                     )}
                   </div>
-
-                  {/* Ports section */}
-                  {block.ports.length > 0 && (
-                    <div style={{ padding: '5px 12px', borderBottom: '1px solid var(--border)' }}>
-                      <div style={{ fontSize: 9, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Ports</div>
-                      {block.ports.map(p => (
-                        <div key={p} style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'monospace', padding: '1px 0' }}>⬡ {p}</div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Parts section */}
-                  {block.parts.length > 0 && (
-                    <div style={{ padding: '5px 12px' }}>
-                      <div style={{ fontSize: 9, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Parts</div>
-                      {block.parts.map((p, i) => (
-                        <div key={i} style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'monospace', padding: '1px 0', overflowWrap: 'anywhere' }}>
-                          □ {p.name}{p.typeName ? ` : ${p.typeName}` : ''}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {!block.ports.length && !block.parts.length && (
-                    <div style={{ padding: '5px 12px' }}>
-                      <div style={{ fontSize: 11, color: 'var(--text4)' }}>—</div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
 
 // ── Requirements renderer ─────────────────────────────────────────────────────
 
-function RequirementCard({ node, depth }: { node: RequirementNode; depth: number }) {
+function RequirementCard({
+  node, depth, projectId, onRefresh,
+}: {
+  node: RequirementNode;
+  depth: number;
+  projectId: string;
+  onRefresh?: () => void;
+}) {
   const isDef = node.type === 'RequirementDefinition';
+  const [expanded, setExpanded] = useState(false);
+  const [editName, setEditName] = useState(node.name);
+  const [editShortName, setEditShortName] = useState(node.shortName ?? '');
+  const [editDoc, setEditDoc] = useState(node.docText ?? '');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const handleToggle = () => {
+    if (!expanded) {
+      setEditName(node.name);
+      setEditShortName(node.shortName ?? '');
+      setEditDoc(node.docText ?? '');
+      setSaveError(null);
+    }
+    setExpanded(v => !v);
+  };
+
+  const dirty =
+    editName !== node.name ||
+    editShortName !== (node.shortName ?? '') ||
+    editDoc !== (node.docText ?? '');
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const updates: Record<string, unknown> = {};
+      if (editName !== node.name) updates.declaredName = editName;
+      if (editShortName !== (node.shortName ?? ''))
+        updates.declaredShortName = editShortName || null;
+      if (Object.keys(updates).length > 0)
+        await patchElement(projectId, node.id, updates);
+      if (editDoc !== (node.docText ?? ''))
+        await putDocumentation(projectId, node.id, editDoc);
+      setExpanded(false);
+      onRefresh?.();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', boxSizing: 'border-box',
+    background: 'var(--bg)', border: '1px solid var(--border2)',
+    borderRadius: 4, color: '#f1f5f9', fontSize: 12,
+    padding: '5px 8px', fontFamily: 'inherit',
+  };
+
   return (
     <div style={{ marginLeft: depth * 20 }}>
       <div style={{
@@ -302,32 +432,122 @@ function RequirementCard({ node, depth }: { node: RequirementNode; depth: number
         borderColor: isDef ? 'var(--primary)' : 'var(--border2)',
         borderRadius: 6,
         background: 'var(--surface)',
-        padding: '8px 14px',
         marginBottom: 8,
         boxShadow: isDef ? '0 0 0 1px rgba(99,102,241,.2)' : 'none',
+        overflow: 'hidden',
       }}>
-        <div style={{ fontSize: 9, color: 'var(--primary-text)', marginBottom: 2 }}>
-          «{isDef ? 'requirement def' : 'requirement'}»
+        {/* Collapsed header — always visible, click to expand */}
+        <div
+          onClick={handleToggle}
+          style={{ padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 8 }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 9, color: 'var(--primary-text)', marginBottom: 2 }}>
+              «{isDef ? 'requirement def' : 'requirement'}»
+            </div>
+            <div style={{ fontSize: 13, fontWeight: isDef ? 800 : 600, color: '#f1f5f9' }}>{node.name}</div>
+            {node.shortName && (
+              <div style={{ fontSize: 10, color: 'var(--text4)', fontFamily: 'monospace', marginTop: 1 }}>{node.shortName}</div>
+            )}
+            {(node.satisfiedBy.length > 0 || node.verifiedBy.length > 0) && (
+              <div style={{ marginTop: 5, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {node.satisfiedBy.map((s, i) => (
+                  <span key={i} style={{ fontSize: 10, background: 'rgba(34,197,94,.12)', color: '#4ade80', borderRadius: 3, padding: '1px 6px' }}>✓ {s}</span>
+                ))}
+                {node.verifiedBy.map((v, i) => (
+                  <span key={i} style={{ fontSize: 10, background: 'rgba(96,165,250,.12)', color: '#60a5fa', borderRadius: 3, padding: '1px 6px' }}>⊛ {v}</span>
+                ))}
+              </div>
+            )}
+          </div>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+            style={{ color: 'var(--text4)', flexShrink: 0, marginTop: 4, transition: 'transform 0.15s', transform: expanded ? 'rotate(180deg)' : 'none' }}>
+            <path d="m6 9 6 6 6-6"/>
+          </svg>
         </div>
-        <div style={{ fontSize: 13, fontWeight: isDef ? 800 : 600, color: '#f1f5f9' }}>{node.name}</div>
-        {node.satisfiedBy.length > 0 && (
-          <div style={{ marginTop: 5, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {node.satisfiedBy.map((s, i) => (
-              <span key={i} style={{ fontSize: 10, background: 'rgba(34,197,94,.12)', color: '#4ade80', borderRadius: 3, padding: '1px 6px' }}>
-                ✓ {s}
-              </span>
-            ))}
+
+        {/* Expanded detail + edit panel */}
+        {expanded && (
+          <div style={{ borderTop: '1px solid var(--border)', padding: '12px 14px', background: 'rgba(255,255,255,0.02)' }}>
+            <label style={{ display: 'block', marginBottom: 10 }}>
+              <div style={{ fontSize: 10, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Name</div>
+              <input value={editName} onChange={e => setEditName(e.target.value)} style={inputStyle} />
+            </label>
+
+            <label style={{ display: 'block', marginBottom: 10 }}>
+              <div style={{ fontSize: 10, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Short Name / ID</div>
+              <input value={editShortName} onChange={e => setEditShortName(e.target.value)}
+                placeholder="e.g. REQ-001" style={{ ...inputStyle, fontFamily: 'monospace' }} />
+            </label>
+
+            <label style={{ display: 'block', marginBottom: 10 }}>
+              <div style={{ fontSize: 10, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Documentation</div>
+              <textarea value={editDoc} onChange={e => setEditDoc(e.target.value)}
+                placeholder="Requirement statement…" rows={3}
+                style={{ ...inputStyle, resize: 'vertical' }} />
+            </label>
+
+            {node.satisfiedBy.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Satisfied By</div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {node.satisfiedBy.map((s, i) => (
+                    <span key={i} style={{ fontSize: 10, background: 'rgba(34,197,94,.12)', color: '#4ade80', borderRadius: 3, padding: '2px 6px' }}>✓ {s}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {node.verifiedBy.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Verified By</div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {node.verifiedBy.map((v, i) => (
+                    <span key={i} style={{ fontSize: 10, background: 'rgba(96,165,250,.12)', color: '#60a5fa', borderRadius: 3, padding: '2px 6px' }}>⊛ {v}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 10, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Element ID</div>
+              <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--text4)', wordBreak: 'break-all' }}>{node.id}</div>
+            </div>
+
+            {saveError && (
+              <div style={{ marginBottom: 8, fontSize: 11, color: '#f87171', background: 'rgba(248,113,113,.08)', borderRadius: 4, padding: '4px 8px' }}>
+                {saveError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => { setExpanded(false); setSaveError(null); }} disabled={saving}
+                style={{ background: 'none', border: '1px solid var(--border2)', borderRadius: 4, color: 'var(--text3)', cursor: 'pointer', fontSize: 11, padding: '4px 10px' }}>
+                Cancel
+              </button>
+              <button onClick={handleSave} disabled={saving || !dirty}
+                style={{
+                  background: dirty && !saving ? 'var(--primary)' : 'transparent',
+                  border: '1px solid', borderColor: dirty && !saving ? 'var(--primary)' : 'var(--border2)',
+                  borderRadius: 4, color: dirty && !saving ? '#fff' : 'var(--text4)',
+                  cursor: dirty && !saving ? 'pointer' : 'default',
+                  fontSize: 11, padding: '4px 12px', fontWeight: 600,
+                }}>
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
           </div>
         )}
       </div>
+
       {node.children.map(child => (
-        <RequirementCard key={child.id} node={child} depth={depth + 1} />
+        <RequirementCard key={child.id} node={child} depth={depth + 1} projectId={projectId} onRefresh={onRefresh} />
       ))}
     </div>
   );
 }
 
-function GeneratedRequirements({ model }: { model: RequirementsModel }) {
+function GeneratedRequirements({ model, projectId, onRefresh }: { model: RequirementsModel; projectId: string; onRefresh?: () => void }) {
   if (!model.roots.length) {
     return (
       <div style={{ padding: 24, textAlign: 'center', color: 'var(--text4)', fontSize: 12 }}>
@@ -340,7 +560,7 @@ function GeneratedRequirements({ model }: { model: RequirementsModel }) {
       <div style={{ fontSize: 10, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>
         Requirements — {model.roots.length} root(s)
       </div>
-      {model.roots.map(r => <RequirementCard key={r.id} node={r} depth={0} />)}
+      {model.roots.map(r => <RequirementCard key={r.id} node={r} depth={0} projectId={projectId} onRefresh={onRefresh} />)}
     </div>
   );
 }

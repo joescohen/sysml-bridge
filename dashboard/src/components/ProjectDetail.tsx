@@ -17,6 +17,7 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
   const [error, setError] = useState<string | null>(null);
   const [treeCollapsed, setTreeCollapsed] = useState(false);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [localRefresh, setLocalRefresh] = useState(0);
   const projectId = project['@id'];
 
   useEffect(() => {
@@ -34,7 +35,7 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [projectId, refreshKey]);
+  }, [projectId, refreshKey, localRefresh]);
 
 
   const roots = !loading && !error ? buildContainmentTree(elements) : [];
@@ -169,6 +170,7 @@ export function ProjectDetail({ project, onBack, refreshKey }: ProjectDetailProp
               refreshKey={refreshKey}
               sysonElementId={selectedElementId}
               onClearElementNav={() => setSelectedElementId(null)}
+              onRefresh={() => setLocalRefresh(k => k + 1)}
             />
           </div>
 

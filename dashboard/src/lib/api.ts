@@ -37,6 +37,29 @@ export interface TopologyEdge {
   targetPort: string;
 }
 
-export function getTopology(projectId: string): Promise<{ edges: TopologyEdge[] }> {
-  return apiFetch(`/api/projects/${projectId}/topology`);
+export async function getTopology(projectId: string): Promise<{ edges: TopologyEdge[] }> {
+  const res = await fetch(`/api/projects/${projectId}/topology`);
+  if (res.status === 404) return { edges: [] };
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}: /api/projects/${projectId}/topology`);
+  return res.json() as Promise<{ edges: TopologyEdge[] }>;
+}
+
+export function patchElement(projectId: string, elementId: string, updates: Record<string, unknown>): Promise<{ success: boolean }> {
+  return apiFetch(`/api/projects/${projectId}/elements/${elementId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+}
+
+export function putDocumentation(projectId: string, elementId: string, body: string): Promise<{ success: boolean; doc_element_id: string; created: boolean }> {
+  return apiFetch(`/api/projects/${projectId}/elements/${elementId}/documentation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  });
+}
+
+export function invalidateCache(projectId: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/projects/${projectId}/invalidate`, { method: 'POST' });
 }

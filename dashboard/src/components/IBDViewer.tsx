@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, useRef } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import {
   ReactFlow, Background, Controls, MiniMap,
   useNodesState, useEdgesState, useReactFlow, ReactFlowProvider,
@@ -28,15 +28,13 @@ function IBDViewerInner({ projectId, elements }: IBDViewerProps) {
   const { fitView } = useReactFlow();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const elementsRef = useRef(elements);
-  elementsRef.current = elements;
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
       const topo = await getTopology(projectId);
-      const { nodes: rawNodes, edges: rawEdges } = transformToIBD(elementsRef.current, topo.edges);
+      const { nodes: rawNodes, edges: rawEdges } = transformToIBD(elements, topo.edges);
       const laidOut = await applyELKLayout(rawNodes, rawEdges);
       setNodes(laidOut);
       setEdges(rawEdges);
@@ -46,7 +44,7 @@ function IBDViewerInner({ projectId, elements }: IBDViewerProps) {
     } finally {
       setLoading(false);
     }
-  }, [projectId, setNodes, setEdges]);
+  }, [projectId, elements, setNodes, setEdges]);
 
   useEffect(() => { load(); }, [load]);
 

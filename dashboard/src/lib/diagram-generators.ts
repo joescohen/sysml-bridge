@@ -212,9 +212,13 @@ export function buildStateMachineModel(elements: SysONElement[]): StateMachineMo
 export interface RequirementNode {
   id: string;
   name: string;
+  shortName: string | null;
   type: string;
   children: RequirementNode[];
-  satisfiedBy: string[];   // element names that satisfy this requirement
+  satisfiedBy: string[];
+  verifiedBy: string[];
+  docText: string | null;
+  docElementId: string | null;  // ID of owned Documentation element, if any
 }
 
 export interface RequirementsModel {
@@ -229,20 +233,36 @@ export function buildRequirementsModel(elements: SysONElement[]): RequirementsMo
   const reqEls = elements.filter(e => REQ_TYPES.has(e['@type']));
   if (!reqEls.length) return { roots: [] };
 
-  // Map: requirement ID → list of element names that satisfy/verify it
-  const satisfiedBy = new Map<string, string[]>();
+  // Map: requirement ID → doc text + doc element ID (from owned Documentation elements)
+  const docTextMap = new Map<string, string>();
+  const docIdMap   = new Map<string, string>();
   for (const e of elements) {
-    if (!['SatisfyRequirementUsage', 'VerifyRequirementUsage'].includes(e['@type'])) continue;
+    if (e['@type'] !== 'Documentation') continue;
+    const ownerId = e.owner?.['@id'];
+    if (!ownerId || !reqEls.find(r => r['@id'] === ownerId)) continue;
+    if (e.body) {
+      docTextMap.set(ownerId, String(e.body));
+      docIdMap.set(ownerId, e['@id']);
+    }
+  }
+
+  // Map: requirement ID → satisfied-by names / verified-by names
+  const satisfiedBy = new Map<string, string[]>();
+  const verifiedBy  = new Map<string, string[]>();
+  for (const e of elements) {
+    const isSatisfy = e['@type'] === 'SatisfyRequirementUsage';
+    const isVerify  = e['@type'] === 'VerifyRequirementUsage';
+    if (!isSatisfy && !isVerify) continue;
     const tgts = Array.isArray(e.target) ? e.target : e.target ? [e.target] : [];
     const srcs = Array.isArray(e.source) ? e.source : e.source ? [e.source] : [];
     for (const t of tgts) {
       const reqId = typeof t === 'object' && '@id' in t ? t['@id'] : undefined;
       if (!reqId) continue;
-      if (!satisfiedBy.has(reqId)) satisfiedBy.set(reqId, []);
+      const map = isSatisfy ? satisfiedBy : verifiedBy;
+      if (!map.has(reqId)) map.set(reqId, []);
       const srcEl = srcs[0] && typeof srcs[0] === 'object' && '@id' in srcs[0]
         ? byId.get(srcs[0]['@id'] as string) : undefined;
-      const srcName = srcEl ? elementName(srcEl) : 'unknown';
-      satisfiedBy.get(reqId)!.push(srcName);
+      map.get(reqId)!.push(srcEl ? elementName(srcEl) : 'unknown');
     }
   }
 
@@ -253,11 +273,15 @@ export function buildRequirementsModel(elements: SysONElement[]): RequirementsMo
   // Create all nodes first
   for (const e of reqEls) {
     const node: RequirementNode = {
-      id:          e['@id'],
-      name:        elementName(e),
-      type:        e['@type'],
-      children:    [],
-      satisfiedBy: satisfiedBy.get(e['@id']) ?? [],
+      id:           e['@id'],
+      name:         elementName(e),
+      shortName:    e.declaredShortName ?? null,
+      type:         e['@type'],
+      children:     [],
+      satisfiedBy:  satisfiedBy.get(e['@id']) ?? [],
+      verifiedBy:   verifiedBy.get(e['@id']) ?? [],
+      docText:      docTextMap.get(e['@id']) ?? null,
+      docElementId: docIdMap.get(e['@id']) ?? null,
     };
     allNodes.set(e['@id'], node);
   }
