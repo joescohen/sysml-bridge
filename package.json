@@ -2,7 +2,25 @@
   "name": "sysml-bridge",
   "version": "0.1.0",
   "private": true,
-  "description": "Claude Code skill suite + MCP server for bidirectional natural-language ↔ SysML v2 MBSE workflows",
+  "description": "Claude Code skill suite + MCP server for bidirectional natural-language to SysML v2 MBSE workflows",
+  "author": "Joe Cohen",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joescohen/sysml-bridge.git"
+  },
+  "homepage": "https://github.com/joescohen/sysml-bridge",
+  "keywords": [
+    "sysml",
+    "sysml-v2",
+    "mbse",
+    "mcp",
+    "mcp-server",
+    "claude-code",
+    "systems-engineering",
+    "model-based-systems-engineering",
+    "cameo"
+  ],
   "workspaces": [
     "packages/*"
   ],

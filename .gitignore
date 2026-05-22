@@ -5,3 +5,19 @@ dist/
 .env.local
 .DS_Store
 coverage/
+
+# Runtime data
+topology.json
+examples/**/.mbse-session.json
+
+# Internal dev artifacts
+docs/superpowers/
+docs/REVIEW.md
+
+# Editor/tool-specific local config
+.claude/
+.codex/
+dashboard/.claude/
+
+# Redundant lockfile (project uses pnpm)
+dashboard/package-lock.json

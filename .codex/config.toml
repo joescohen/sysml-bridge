@@ -1,6 +1,0 @@
-[mcp_servers.sysml-bridge]
-args = ["packages/mcp-server/dist/index.js"]
-command = "node"
-
-[mcp_servers.sysml-bridge.env]
-SMAPS_ENDPOINT = "http://localhost:9000"

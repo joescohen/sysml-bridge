@@ -21,7 +21,7 @@ const PORT = parseInt(process.env.PORT ?? '6121', 10);
 const SYSON = process.env.SYSON_ENDPOINT ?? 'http://localhost:8080';
 const SYSON_GQL = `${SYSON}/api/graphql`;
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(express.static(join(__dirname, 'dist')));
 
 // ── SysON helpers ────────────────────────────────────────────────────────────
@@ -1520,6 +1520,65 @@ app.post('/api/projects/:id/invalidate', (req, res) => {
   res.json({ ok: true });
 });
 
+// Patch arbitrary element fields via a SysON DataVersion commit
+app.patch('/api/projects/:id/elements/:eid', async (req, res) => {
+  try {
+    const { id: projectId, eid: elementId } = req.params;
+    const updates = req.body;
+    if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+      return res.status(400).json({ error: 'Request body must be a plain JSON object' });
+    }
+    const allElements = await getAllElements(projectId);
+    const el = allElements.find(e => e['@id'] === elementId);
+    if (!el) return res.status(404).json({ error: `Element not found: ${elementId}` });
+    await sysonRestCommit(projectId, [{
+      '@type': 'DataVersion',
+      identity: { '@id': el['@id'], '@type': 'DataIdentity' },
+      payload: { '@type': el['@type'], '@id': el['@id'], ...updates },
+    }]);
+    res.json({ success: true, element_id: el['@id'], updated: updates });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// Create or update the Documentation element owned by a given element
+app.post('/api/projects/:id/elements/:eid/documentation', async (req, res) => {
+  try {
+    const { id: projectId, eid: elementId } = req.params;
+    const { body: docBody } = req.body;
+    if (typeof docBody !== 'string') {
+      return res.status(400).json({ error: '"body" must be a string' });
+    }
+    const allElements = await getAllElements(projectId);
+    const el = allElements.find(e => e['@id'] === elementId);
+    if (!el) return res.status(404).json({ error: `Element not found: ${elementId}` });
+
+    // Find an existing Documentation element owned by this element
+    const existing = allElements.find(
+      e => e['@type'] === 'Documentation' && e.owner?.['@id'] === elementId
+    );
+
+    if (existing) {
+      await sysonRestCommit(projectId, [{
+        '@type': 'DataVersion',
+        identity: { '@id': existing['@id'], '@type': 'DataIdentity' },
+        payload: { '@type': 'Documentation', '@id': existing['@id'], body: docBody },
+      }]);
+      res.json({ success: true, doc_element_id: existing['@id'], created: false });
+    } else {
+      const docId = randomUUID();
+      await sysonRestCommit(projectId, [{
+        '@type': 'DataVersion',
+        payload: { '@type': 'Documentation', '@id': docId, body: docBody, owner: { '@id': elementId } },
+      }]);
+      res.json({ success: true, doc_element_id: docId, created: true });
+    }
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
 app.get('/api/projects/:id/export', async (req, res) => {
   try {
     const elements = await getAllElements(req.params.id);
@@ -1666,9 +1725,20 @@ All skills:
 ${activeWorkflow}`;
 }
 
-app.get('/api/projects/:id/topology', (req, res) => {
+app.get('/api/projects/:id/topology', async (req, res) => {
   const topo = loadTopology();
-  res.json(topo[req.params.id] ?? { edges: [] });
+  const projectTopo = topo[req.params.id];
+  if (!projectTopo) {
+    try {
+      const sysonRes = await fetch(`${SYSON}/api/rest/projects`, { signal: AbortSignal.timeout(3000) });
+      if (sysonRes.ok) {
+        const projects = await sysonRes.json();
+        const exists = Array.isArray(projects) && projects.some(p => p['@id'] === req.params.id);
+        if (!exists) return res.status(404).json({ error: 'Project not found', edges: [] });
+      }
+    } catch { /* SysON unreachable — fall through to empty edges */ }
+  }
+  res.json(projectTopo ?? { edges: [] });
 });
 
 app.post('/api/projects/:id/topology/edges', (req, res) => {
@@ -1693,7 +1763,7 @@ process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err);
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  sysml-bridge dashboard  →  http://localhost:${PORT}`);
   console.log(`  SysON endpoint          →  ${SYSON}`);
   console.log(`  Anthropic API           →  ${process.env.ANTHROPIC_API_KEY ? 'ready' : '⚠  ANTHROPIC_API_KEY not set'}\n`);

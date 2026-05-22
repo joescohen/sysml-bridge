@@ -1,6 +1,9 @@
 {
   "name": "sysml-bridge-dashboard",
   "private": true,
+  "description": "Web dashboard for visualizing and interacting with SysML v2 models",
+  "author": "Joe Cohen",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
