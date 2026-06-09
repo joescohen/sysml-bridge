@@ -199,11 +199,15 @@ async function main(): Promise<void> {
   const compNameToElemId = new Map<string, string>();
   const verifyMethodToElemId = new Map<string, string>();
 
-  // -- Step 1: Needs --
-  console.log("Step 1: Creating Needs...");
+  // -- Step 1: Needs — tagged with stakeholderNeed: true --
+  // Needs are RequirementDefinitions, but they are NOT system requirements.
+  // They are covered when a system requirement derives from them (DeriveRequirementUsage,
+  // req→need). The validator distinguishes Needs from system Requirements via this flag.
+  console.log("Step 1: Creating Needs (tagged stakeholderNeed: true)...");
   for (const need of corpus.needs) {
     const el = await store.createElement("RequirementDefinition", need.name, {
       provenanceSourceId: need.id,
+      stakeholderNeed: true,
     });
     needIdToElemId.set(need.id, el.id);
   }
@@ -220,7 +224,10 @@ async function main(): Promise<void> {
   console.log(`  Created ${corpus.requirements.length} requirements.`);
 
   // -- Step 3: Need → Req derive relationships --
-  console.log("Step 3: Creating Need→Req DeriveRequirementUsage edges...");
+  // Each system requirement declares which stakeholder needs it traces to via
+  // DeriveRequirementUsage. Source = system requirement, target = stakeholder need.
+  // This is the correct backward-trace edge AND the mechanism by which needs are covered.
+  console.log("Step 3: Creating Req→Need DeriveRequirementUsage edges...");
   let deriveCount = 0;
   for (const req of corpus.requirements) {
     const reqElemId = reqIdToElemId.get(req.id);
@@ -238,6 +245,8 @@ async function main(): Promise<void> {
   console.log(`  Created ${deriveCount} derive edges.`);
 
   // -- Step 4: BDD — subsystem + components + FeatureMembership --
+  // The subsystem owns all components via FeatureMembership — this makes it a structural
+  // container, exempt from the orphan check even without its own direct trace edge.
   console.log("Step 4: Creating BDD (subsystem + components)...");
   const subsystem = await store.createElement("PartDefinition", "Command & Control Subsystem", {
     provenanceSourceId: "C&C",
@@ -249,7 +258,7 @@ async function main(): Promise<void> {
       provenanceSourceId: comp.name,
     });
     compNameToElemId.set(comp.name, compEl.id);
-    // containment via FeatureMembership
+    // containment via FeatureMembership (subsystem owns component)
     await store.createElement("FeatureMembership", "", {
       source: [{ "@id": subsystem.id }],
       target: [{ "@id": compEl.id }],
@@ -266,6 +275,41 @@ async function main(): Promise<void> {
     fnIdToElemId.set(fn.id, el.id);
   }
   console.log(`  Created ${corpus.functions.length} function elements.`);
+
+  // -- Step 5b: Functional decomposition via FeatureMembership --
+  // F1 and F8 are top-level functions that own leaf sub-functions.
+  // Without FeatureMembership edges they would appear as leaf elements with no trace
+  // (since only F1.x/F8.x functions satisfy requirements directly).
+  // Adding FeatureMembership F1→F1.x and F8→F8.x makes F1/F8 containers,
+  // exempt from the orphan check per the corrected validator semantics.
+  console.log("Step 5b: Creating functional decomposition (FeatureMembership F1→F1.x, F8→F8.x)...");
+  const topLevelFnIds = ["F1", "F8"];
+  let fnDecompCount = 0;
+  for (const parentId of topLevelFnIds) {
+    const parentElemId = fnIdToElemId.get(parentId);
+    if (!parentElemId) {
+      console.warn(`  WARN: No element for parent function ${parentId}`);
+      continue;
+    }
+    // Find all children of this parent (dot-notation: F1.1, F1.2, F8.1, etc.)
+    const children = corpus.functions.filter(
+      (fn) => fn.id.startsWith(parentId + ".") && fn.id.split(".").length === 2
+    );
+    for (const child of children) {
+      const childElemId = fnIdToElemId.get(child.id);
+      if (!childElemId) {
+        console.warn(`  WARN: No element for child function ${child.id}`);
+        continue;
+      }
+      await store.createElement("FeatureMembership", "", {
+        source: [{ "@id": parentElemId }],
+        target: [{ "@id": childElemId }],
+      });
+      fnDecompCount++;
+      console.log(`    ${parentId} → ${child.id} (${child.name})`);
+    }
+  }
+  console.log(`  Created ${fnDecompCount} functional decomposition edges.`);
 
   // -- Step 6: Satisfy (Req→Function, source=function, target=req) --
   console.log("Step 6: Creating SatisfyRequirementUsage edges...");
@@ -289,12 +333,16 @@ async function main(): Promise<void> {
   }
   console.log(`  Created ${satisfyCount} satisfy edges.`);
 
-  // -- Step 7: Allocate (model-asserted, leaf + top-level functions + subsystem) --
-  console.log("Step 7: Creating model-asserted AllocationUsage edges...");
+  // -- Step 7: Allocate (model-asserted, leaf functions only) --
+  // Only leaf functions (F1.x, F8.x) get direct AllocationUsage edges to components.
+  // Top-level functions (F1, F8) are containers via FeatureMembership — they do NOT
+  // need allocation edges and MUST NOT get fake allocations.
+  // The subsystem is a container via FeatureMembership to its components — no allocation needed.
+  console.log("Step 7: Creating model-asserted AllocationUsage edges (leaf functions only)...");
   const leafFunctions = corpus.functions.filter(isLeafFunction);
   let allocCount = 0;
+  const unallocatedComponents = new Set(corpus.components.map((c) => c.name));
 
-  // Leaf functions → deterministic keyword heuristic
   for (const fn of leafFunctions) {
     const fnElemId = fnIdToElemId.get(fn.id);
     if (!fnElemId) {
@@ -313,88 +361,27 @@ async function main(): Promise<void> {
       provenanceSourceId: "model-asserted",
     });
     allocCount++;
+    unallocatedComponents.delete(targetCompName);
     console.log(`    ${fn.id} (${fn.name}) → ${targetCompName}`);
   }
 
-  // Top-level functions (F1, F8) → allocated to owning components
-  // F1 Manage Refueling Requests → Operator Control Plane (C2 command function)
-  // F8 Manage HMI              → HMI Panel & Displays   (HMI management function)
-  const topLevelFunctions = corpus.functions.filter((fn) => !isLeafFunction(fn));
-  const topLevelTargets: Record<string, ComponentName> = {
-    F1: "Operator Control Plane",
-    F8: "HMI Panel & Displays",
-  };
-  for (const fn of topLevelFunctions) {
-    const fnElemId = fnIdToElemId.get(fn.id);
-    if (!fnElemId) continue;
-    const targetCompName: ComponentName | undefined = topLevelTargets[fn.id];
-    if (!targetCompName) continue;
-    const compElemId = compNameToElemId.get(targetCompName);
-    if (!compElemId) continue;
-    await store.createElement("AllocationUsage", "", {
-      source: [{ "@id": fnElemId }],
-      target: [{ "@id": compElemId }],
-      provenanceSourceId: "model-asserted",
-    });
-    allocCount++;
-    console.log(`    ${fn.id} (${fn.name}) → ${targetCompName} [top-level]`);
-  }
+  console.log(`  Created ${allocCount} model-asserted allocation edges.`);
 
-  // Subsystem PartDefinition → AllocationUsage from subsystem to first leaf component.
-  // This ensures the subsystem participates in at least one AllocationUsage edge
-  // (which counts toward the orphan check in validate_model) without polluting the
-  // SatisfyRequirementUsage fidelity comparison.
-  {
-    const firstCompName = corpus.components[0]?.name;
-    if (firstCompName) {
-      const firstCompId = compNameToElemId.get(firstCompName);
-      if (firstCompId) {
-        await store.createElement("AllocationUsage", "", {
-          source: [{ "@id": subsystem.id }],
-          target: [{ "@id": firstCompId }],
-          provenanceSourceId: "model-asserted",
-        });
-        console.log(`    Command & Control Subsystem → allocates to ${firstCompName} [model-asserted]`);
-      }
+  // Report any legitimately unallocated components (real gaps, not papered over)
+  if (unallocatedComponents.size > 0) {
+    console.log(`\n  NOTE — legitimately unallocated components (no leaf function maps to them):`);
+    for (const name of unallocatedComponents) {
+      console.log(`    UNALLOCATED: ${name}`);
     }
+    console.log(`  These components are structural containers owned by the subsystem via`);
+    console.log(`  FeatureMembership. They are NOT orphans (the subsystem is their container).`);
+    console.log(`  Their unallocated status is a real model gap, not masked.\n`);
   }
 
-  console.log(`  Created ${allocCount} model-asserted allocation edges (incl. top-level functions).`);
-
-  // -- Step 7b: Need-level traceability (forward + verify) --
-  // Needs are RequirementDefinition elements; validate_model queries ALL RequirementDefinitions.
-  // Stakeholder needs are NOT system requirements but the validator doesn't distinguish them.
-  // Resolution: give each need (a) an AllocationUsage forward-trace from the subsystem
-  // (AllocationUsage is in FORWARD_TYPES in validate_model) and (b) a VerifyRequirementUsage edge
-  // from a dedicated "Verify_StakeholderNeed" verification case.
-  // AllocationUsage (not SatisfyRequirementUsage) is used so these edges do NOT appear in the
-  // fidelity compareTrace which only reads SatisfyRequirementUsage.
-  console.log("Step 7b: Creating need-level AllocationUsage (forward) + VerifyRequirementUsage edges...");
-  const needVerifyEl = await store.createElement("VerificationCaseDefinition", "Verify_StakeholderNeed", {
-    provenanceSourceId: "StakeholderNeed",
-  });
-  let needEdgeCount = 0;
-  for (const need of corpus.needs) {
-    const needElemId = needIdToElemId.get(need.id);
-    if (!needElemId) continue;
-    // Forward trace via AllocationUsage (subsystem allocates to the need space)
-    await store.createElement("AllocationUsage", "", {
-      source: [{ "@id": subsystem.id }],
-      target: [{ "@id": needElemId }],
-      provenanceSourceId: "model-asserted",
-    });
-    // Verify via VerifyRequirementUsage
-    await store.createElement("VerifyRequirementUsage", "", {
-      source: [{ "@id": needVerifyEl.id }],
-      target: [{ "@id": needElemId }],
-    });
-    needEdgeCount++;
-  }
-  console.log(`  Created ${needEdgeCount} need-level forward + verify edge pairs.`);
-
-  // -- Step 8: Verify --
+  // -- Step 8: Verify (VerificationCaseDefinition + VerifyRequirementUsage) --
+  // Verification cases are created for SYSTEM REQUIREMENTS ONLY.
+  // Stakeholder Needs are NOT verified — they are covered by derivation, not verification.
   console.log("Step 8: Creating VerificationCaseDefinition + VerifyRequirementUsage edges...");
-  // Collect distinct verify methods
   const distinctMethods = [...new Set(corpus.requirements.map((r) => r.verifyMethod))];
   for (const method of distinctMethods) {
     const el = await store.createElement("VerificationCaseDefinition", `Verify_${method}`, {
@@ -418,20 +405,13 @@ async function main(): Promise<void> {
     });
     verifyEdgeCount++;
   }
-  console.log(`  Created ${verifyEdgeCount} verify edges.`);
+  console.log(`  Created ${verifyEdgeCount} verify edges (system requirements only).`);
 
   // -- Step 9: Export to SysML --
   console.log("\nStep 9: Exporting to SysML v2...");
   const allElements = await store.queryElements();
   const allRels = await store.queryRelationships();
 
-  // Serializer expects SysmlRelationship[], but queryRelationships returns that shape already.
-  // Non-relationship elements (definitions) go into elements; relationships go separately.
-  // The serializer renders trace statements from the relationship list and element body from elements.
-  // Elements that are relationships (have source/target) should NOT be in the elements list
-  // if they have no meaningful name for body rendering — but the serializer handles null-named
-  // elements by emitting them as anonymous. For clean output, separate structural elements
-  // from trace-only relationships.
   const TRACE_REL_TYPES = new Set([
     "SatisfyRequirementUsage",
     "VerifyRequirementUsage",
@@ -440,13 +420,10 @@ async function main(): Promise<void> {
     "FeatureMembership",
   ]);
 
-  // Build element list: all elements that are NOT pure relationship elements
-  // (i.e., are definition/usage types that render as blocks, not trace statements)
   const structuralElements = allElements.filter(
     (e) => !TRACE_REL_TYPES.has(e.type)
   );
 
-  // Build relationship list from the raw elements that have source/target
   const relElements = allElements.filter((e) => TRACE_REL_TYPES.has(e.type));
   const relationships: SysmlRelationship[] = relElements.map((e) => ({
     id: e.id,
@@ -472,6 +449,10 @@ async function main(): Promise<void> {
 
   const allElementIds = new Set(allElementsFresh.map((e) => e.id));
 
+  // Separate needs from system requirements
+  const needElements = requirements.filter((r) => r.raw.stakeholderNeed === true);
+  const systemReqs = requirements.filter((r) => r.raw.stakeholderNeed !== true);
+
   const FORWARD_TYPES = new Set(["SatisfyRequirementUsage", "AllocationUsage"]);
   const VERIFY_TYPES = new Set(["VerifyRequirementUsage", "RequirementVerificationMembership"]);
   const BACKWARD_TYPES = new Set(["DeriveRequirementUsage"]);
@@ -485,25 +466,42 @@ async function main(): Promise<void> {
   const verifiedIds = new Set<string>();
   const backwardTracedIds = new Set<string>();
 
-  for (const req of requirements) {
+  for (const req of systemReqs) {
     const rels = await store.queryRelationships(req.id, "both");
     if (rels.some((r) => FORWARD_TYPES.has(r.type))) forwardTracedIds.add(req.id);
     if (rels.some((r) => VERIFY_TYPES.has(r.type))) verifiedIds.add(req.id);
     if (rels.some((r) => BACKWARD_TYPES.has(r.type))) backwardTracedIds.add(req.id);
   }
 
-  const totalReqs = requirements.length;
-  const forwardPercent = totalReqs > 0 ? Math.round((forwardTracedIds.size / totalReqs) * 100) : 0;
-  const verifyPercent = totalReqs > 0 ? Math.round((verifiedIds.size / totalReqs) * 100) : 0;
-  const backwardPercent = totalReqs > 0 ? Math.round((backwardTracedIds.size / totalReqs) * 100) : 0;
+  const totalSystemReqs = systemReqs.length;
+  const forwardPercent = totalSystemReqs > 0 ? Math.round((forwardTracedIds.size / totalSystemReqs) * 100) : 0;
+  const verifyPercent = totalSystemReqs > 0 ? Math.round((verifiedIds.size / totalSystemReqs) * 100) : 0;
+  const backwardPercent = totalSystemReqs > 0 ? Math.round((backwardTracedIds.size / totalSystemReqs) * 100) : 0;
 
+  // Need coverage
+  const coveredNeedIds = new Set<string>();
+  for (const need of needElements) {
+    const rels = await store.queryRelationships(need.id, "in");
+    if (rels.some((r) => BACKWARD_TYPES.has(r.type))) coveredNeedIds.add(need.id);
+  }
+  const needCoveragePercent = needElements.length > 0
+    ? Math.round((coveredNeedIds.size / needElements.length) * 100)
+    : 100;
+  const uncoveredNeeds = needElements.filter((n) => !coveredNeedIds.has(n.id));
+
+  // Orphans: leaf design elements (no trace edge AND no FeatureMembership children)
   const designElements = [...parts, ...actions];
   const orphanElements: Array<{ id: string; name: string | null; type: string }> = [];
 
   for (const el of designElements) {
     const rels = await store.queryRelationships(el.id, "both");
     const hasTraceEdge = rels.some((r) => ORPHAN_TRACE_TYPES.has(r.type));
-    if (!hasTraceEdge) {
+    if (hasTraceEdge) continue;
+    // Check if it is a container (SOURCE of FeatureMembership)
+    const isContainer = rels.some(
+      (r) => r.type === "FeatureMembership" && r.sourceIds.includes(el.id)
+    );
+    if (!isContainer) {
       orphanElements.push({ id: el.id, name: el.name, type: el.type });
     }
   }
@@ -537,13 +535,11 @@ async function main(): Promise<void> {
   // -- Step 11: Fidelity --
   console.log("\nStep 11: Fidelity Check (compareTrace)...");
 
-  // Authoritative pairs: from cc-extracted.json's satisfies[]
   const authoritative: TracePair[] = corpus.satisfies.map((s) => ({
     reqId: s.reqId,
     functionId: s.functionId,
   }));
 
-  // Generated pairs: from SatisfyRequirementUsage edges in the store, resolved via provenanceSourceId
   const provenanceById = new Map<string, string>();
   for (const el of allElementsFresh) {
     const prov = el.raw.provenanceSourceId;
@@ -579,9 +575,15 @@ async function main(): Promise<void> {
   console.log("  VALIDATION GATE RESULTS");
   console.log("==========================================================");
   console.log(`  totalElements             : ${totalElements}`);
-  console.log(`  forwardPercent            : ${forwardPercent}%  ${forwardPercent === 100 ? "PASS" : "FAIL"}`);
-  console.log(`  verifyPercent             : ${verifyPercent}%  ${verifyPercent === 100 ? "PASS" : "FAIL"}`);
-  console.log(`  backwardPercent           : ${backwardPercent}%  (informational)`);
+  console.log(`  System requirements       : ${totalSystemReqs}`);
+  console.log(`  Stakeholder needs         : ${needElements.length}`);
+  console.log(`  forwardPercent (sys reqs) : ${forwardPercent}%  ${forwardPercent === 100 ? "PASS" : "FAIL"}`);
+  console.log(`  verifyPercent  (sys reqs) : ${verifyPercent}%  ${verifyPercent === 100 ? "PASS" : "FAIL"}`);
+  console.log(`  backwardPercent(sys reqs) : ${backwardPercent}%  (informational)`);
+  console.log(`  needCoverage              : ${needCoveragePercent}%  (${coveredNeedIds.size}/${needElements.length} needs covered)`);
+  if (uncoveredNeeds.length > 0) {
+    console.log(`    Uncovered needs: ${uncoveredNeeds.map((n) => n.name ?? n.id).join(", ")}`);
+  }
   console.log(`  orphanElements            : ${orphanElements.length}  ${orphanElements.length === 0 ? "PASS" : "FAIL"}`);
   if (orphanElements.length > 0) {
     for (const o of orphanElements) {
