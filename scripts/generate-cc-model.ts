@@ -14,9 +14,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
 import { FileStore } from "../packages/mcp-server/src/file-store.js";
 import { serializeToSysml } from "../packages/mcp-server/src/utils/sysml-serializer.js";
+import { projectForPresentation } from "../packages/mcp-server/src/utils/cc-presentation.js";
 import {
   compareTrace,
   type TracePair,
@@ -35,6 +37,8 @@ const MODEL_DIR =
   process.env.SYSML_BRIDGE_MODEL_DIR ??
   path.join(REPO_ROOT, "examples/angars/model/.store");
 const OUTPUT_SYSML = path.join(REPO_ROOT, "examples/angars/model/cc-subsystem.sysml");
+const VALIDATOR_SH = path.join(REPO_ROOT, "tools/sysml-validator/run.sh");
+const VALIDATOR_REQS = path.join(REPO_ROOT, "tools/sysml-validator/requirements.txt");
 
 // ---------------------------------------------------------------------------
 // Corpus types
@@ -433,7 +437,13 @@ async function main(): Promise<void> {
     raw: e.raw,
   }));
 
-  const sysmlText = serializeToSysml(structuralElements, relationships);
+  // Project the def-based store model into a Cameo-valid presentation model:
+  // synthesizes package-level usages for requirements/components/leaf functions,
+  // nests part/action usages under the subsystem and F1/F8 defs, and re-points
+  // every trace relationship onto the usage ids. The store is NOT mutated.
+  const presentation = projectForPresentation(structuralElements, relationships);
+
+  const sysmlText = serializeToSysml(presentation.elements, presentation.relationships);
   fs.mkdirSync(path.dirname(OUTPUT_SYSML), { recursive: true });
   fs.writeFileSync(OUTPUT_SYSML, sysmlText, "utf8");
   console.log(`  Written to ${OUTPUT_SYSML} (${sysmlText.length} chars, ${sysmlText.split("\n").length} lines)`);
@@ -633,6 +643,76 @@ async function main(): Promise<void> {
     console.log(sysmlLines[i]);
   }
   console.log("--- end excerpt ---\n");
+
+  // -- Step 12: SysML v2 grammar gate (hard) --------------------------------
+  // Run the local ANTLR-based validator on the freshly written .sysml. This is
+  // the durable "never guess, catch locally" control: a grammar-invalid model
+  // can never be silently produced.
+  //   exit 0 -> PASS, continue.
+  //   exit 1 -> grammar errors: print them and FAIL the generation.
+  //   exit 2 -> repo venv missing: loud, actionable warning, but do NOT hard-fail
+  //             (missing tooling is an env problem, not a model defect).
+  console.log("Step 12: SysML v2 grammar gate (tools/sysml-validator)...");
+  runGrammarGate(OUTPUT_SYSML);
+}
+
+/**
+ * Invoke the local SysML v2 grammar validator on `sysmlPath`.
+ *
+ * exit 0 -> prints PASS and returns.
+ * exit 1 -> prints validator output and FAILs generation (throws).
+ * exit 2 -> venv missing: prints a loud, actionable warning and sets an
+ *           advisory non-zero exitCode, but does NOT throw (env, not defect).
+ */
+function runGrammarGate(sysmlPath: string): void {
+  let stdout = "";
+  let exitCode = 0;
+  try {
+    stdout = execFileSync("bash", [VALIDATOR_SH, sysmlPath], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    });
+  } catch (err) {
+    const e = err as { status?: number; stdout?: string; stderr?: string };
+    exitCode = typeof e.status === "number" ? e.status : 1;
+    stdout = (e.stdout ?? "") + (e.stderr ?? "");
+  }
+
+  if (exitCode === 0) {
+    console.log(`  SysML v2 grammar gate: PASS (0 errors)`);
+    if (stdout.trim()) console.log(`  ${stdout.trim()}`);
+    return;
+  }
+
+  if (exitCode === 2) {
+    // Environment problem (no python venv), not a model defect. Warn loudly but
+    // do not hard-fail the whole generation.
+    console.warn("\n  ============================================================");
+    console.warn("  WARNING: SysML v2 grammar gate could NOT run (venv missing).");
+    console.warn("  ------------------------------------------------------------");
+    if (stdout.trim()) {
+      for (const line of stdout.trim().split("\n")) console.warn(`  ${line}`);
+    }
+    console.warn("  Set up the validator venv once with:");
+    console.warn(`    python -m venv "${path.join(REPO_ROOT, ".venv")}"`);
+    console.warn(`    "${path.join(REPO_ROOT, ".venv/bin/pip")}" install -r "${VALIDATOR_REQS}"`);
+    console.warn("  The grammar gate is ADVISORY-SKIPPED this run (env not set up).");
+    console.warn("  ============================================================\n");
+    // Advisory: surface a non-zero note without failing on tooling absence.
+    process.exitCode = process.exitCode ?? 3;
+    return;
+  }
+
+  // exit 1 (or any other non-zero, non-2): grammar errors -> hard fail.
+  console.error("\n  ============================================================");
+  console.error("  SysML v2 grammar gate: FAIL");
+  console.error("  ------------------------------------------------------------");
+  for (const line of stdout.trim().split("\n")) console.error(`  ${line}`);
+  console.error("  ============================================================\n");
+  throw new Error(
+    `SysML v2 grammar gate FAILED (validator exit ${exitCode}) for ${sysmlPath}. ` +
+    `A grammar-invalid model must never be produced.`
+  );
 }
 
 // ---------------------------------------------------------------------------
