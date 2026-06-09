@@ -13,15 +13,20 @@ export function registerQueryRelationships(server: McpServer, smaps: ModelStore)
         .optional()
         .default("both")
         .describe("Relationship direction: in (targeting this element), out (sourced from), both"),
+      type: z
+        .string()
+        .optional()
+        .describe("Filter to a single relationship type, e.g. SatisfyRequirementUsage"),
     },
-    async ({ element_id, direction }) => {
+    async ({ element_id, direction, type }) => {
       try {
         const rels = await smaps.queryRelationships(element_id, direction);
+        const filtered = type ? rels.filter((r) => r.type === type) : rels;
         return {
           content: [
             {
               type: "text" as const,
-              text: JSON.stringify({ count: rels.length, relationships: rels }, null, 2),
+              text: JSON.stringify({ count: filtered.length, relationships: filtered }, null, 2),
             },
           ],
         };
