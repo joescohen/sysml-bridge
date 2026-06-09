@@ -28,20 +28,24 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
           ].map((e) => e.id)
         );
 
-        // ── 1. Forward trace (SatisfyRequirementUsage OR AllocationUsage, outgoing from req OR incoming) ──
-        // A requirement is forward-traced if it has >= 1 edge of either type in either direction.
-        // The spec says "outgoing" but in practice tools wire source=part, target=req (incoming to req).
-        // We check both directions for robustness: either the req appears as source OR target of
-        // SatisfyRequirementUsage / AllocationUsage.
+        // ── Separate stakeholder Needs from system Requirements ──
+        // A Need = RequirementDefinition with raw.stakeholderNeed === true.
+        // Needs are covered by an incoming DeriveRequirementUsage (the need is the TARGET).
+        // Needs are EXEMPT from forward-satisfy and verify checks.
+        // System Requirements = RequirementDefinition WITHOUT raw.stakeholderNeed.
+        const needs = requirements.filter((r) => r.raw.stakeholderNeed === true);
+        const systemReqs = requirements.filter((r) => r.raw.stakeholderNeed !== true);
+
         const FORWARD_TYPES = new Set(["SatisfyRequirementUsage", "AllocationUsage"]);
         const VERIFY_TYPES = new Set(["VerifyRequirementUsage", "RequirementVerificationMembership"]);
         const BACKWARD_TYPES = new Set(["DeriveRequirementUsage"]);
 
+        // ── System Requirement traceability ──
         const forwardTracedIds = new Set<string>();
         const verifiedIds = new Set<string>();
         const backwardTracedIds = new Set<string>();
 
-        for (const req of requirements) {
+        for (const req of systemReqs) {
           const rels = await smaps.queryRelationships(req.id, "both");
 
           // Forward: any edge of forward type touching this requirement
@@ -52,30 +56,41 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
           const hasVerify = rels.some((r) => VERIFY_TYPES.has(r.type));
           if (hasVerify) verifiedIds.add(req.id);
 
-          // Backward: any DeriveRequirementUsage edge, either direction
+          // Backward: outgoing DeriveRequirementUsage (req → need)
+          // The req is the SOURCE of the derive edge pointing to a Need.
           const hasBackward = rels.some((r) => BACKWARD_TYPES.has(r.type));
           if (hasBackward) backwardTracedIds.add(req.id);
         }
 
-        const totalReqs = requirements.length;
+        const totalSystemReqs = systemReqs.length;
         const forwardPercent =
-          totalReqs > 0 ? Math.round((forwardTracedIds.size / totalReqs) * 100) : 0;
+          totalSystemReqs > 0 ? Math.round((forwardTracedIds.size / totalSystemReqs) * 100) : 0;
         const verifyPercent =
-          totalReqs > 0 ? Math.round((verifiedIds.size / totalReqs) * 100) : 0;
+          totalSystemReqs > 0 ? Math.round((verifiedIds.size / totalSystemReqs) * 100) : 0;
         const backwardPercent =
-          totalReqs > 0 ? Math.round((backwardTracedIds.size / totalReqs) * 100) : 0;
+          totalSystemReqs > 0 ? Math.round((backwardTracedIds.size / totalSystemReqs) * 100) : 0;
 
-        // ── 4. Orphan design elements (PartDefinition, ActionDefinition with no trace edge in either direction) ──
-        // A design element is an orphan only if it participates in NO traceability edge at all —
-        // i.e. it is neither source nor target of any SatisfyRequirementUsage, AllocationUsage,
-        // or DeriveRequirementUsage relationship.
-        //
-        // Polarity note:
-        //   SatisfyRequirementUsage: source = satisfier (function/part), target = requirement.
-        //     → A traced function/part is the SOURCE (outbound), so checking inbound-only misses it.
-        //   AllocationUsage: source = function, target = component.
-        //     → An allocated component is the TARGET (inbound allocation), ignored by prior check.
-        // We check "both" directions so that sourcing OR targeting a trace edge exempts the element.
+        // ── Need coverage: a Need is covered iff it is the TARGET of >=1 DeriveRequirementUsage ──
+        const coveredNeedIds = new Set<string>();
+        for (const need of needs) {
+          const rels = await smaps.queryRelationships(need.id, "in");
+          const hasDeriveInbound = rels.some((r) => BACKWARD_TYPES.has(r.type));
+          if (hasDeriveInbound) coveredNeedIds.add(need.id);
+        }
+        const totalNeeds = needs.length;
+        const needCoveragePercent =
+          totalNeeds > 0 ? Math.round((coveredNeedIds.size / totalNeeds) * 100) : 100;
+        const uncoveredNeeds = needs
+          .filter((n) => !coveredNeedIds.has(n.id))
+          .map((n) => ({ id: n.id, name: n.name }));
+
+        // ── 4. Orphan design elements (PartDefinition, ActionDefinition) ──
+        // A design element is an orphan ONLY if:
+        //   (a) it participates in NO traceability edge (SatisfyRequirementUsage, AllocationUsage,
+        //       DeriveRequirementUsage) in either direction, AND
+        //   (b) it is a LEAF element — it owns NO children via FeatureMembership.
+        //       A container (subsystem, parent function) traces through its children; it is not
+        //       an orphan even if it lacks a direct satisfy/allocate/derive edge.
         const ORPHAN_TRACE_TYPES = new Set([
           "SatisfyRequirementUsage",
           "AllocationUsage",
@@ -87,7 +102,13 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
         for (const el of designElements) {
           const rels = await smaps.queryRelationships(el.id, "both");
           const hasTraceEdge = rels.some((r) => ORPHAN_TRACE_TYPES.has(r.type));
-          if (!hasTraceEdge) {
+          if (hasTraceEdge) continue; // has a direct trace edge — not an orphan
+
+          // Check if it is a container: owns >=1 child via FeatureMembership (it is SOURCE)
+          const isContainer = rels.some(
+            (r) => r.type === "FeatureMembership" && r.sourceIds.includes(el.id)
+          );
+          if (!isContainer) {
             orphanElements.push({ id: el.id, name: el.name, type: el.type });
           }
         }
@@ -132,30 +153,36 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
         // ── Build issues list ──
         const issues: string[] = [];
 
-        const unsatisfied = requirements.filter((r) => !forwardTracedIds.has(r.id));
+        const unsatisfied = systemReqs.filter((r) => !forwardTracedIds.has(r.id));
         if (unsatisfied.length > 0) {
           issues.push(
-            `${unsatisfied.length} requirements not forward-traced (no SatisfyRequirementUsage or AllocationUsage): ${unsatisfied.map((r) => r.name ?? r.id).join(", ")}`
+            `${unsatisfied.length} system requirements not forward-traced (no SatisfyRequirementUsage or AllocationUsage): ${unsatisfied.map((r) => r.name ?? r.id).join(", ")}`
           );
         }
 
-        const unverified = requirements.filter((r) => !verifiedIds.has(r.id));
+        const unverified = systemReqs.filter((r) => !verifiedIds.has(r.id));
         if (unverified.length > 0) {
           issues.push(
-            `${unverified.length} requirements not verified (no VerifyRequirementUsage or RequirementVerificationMembership): ${unverified.map((r) => r.name ?? r.id).join(", ")}`
+            `${unverified.length} system requirements not verified (no VerifyRequirementUsage or RequirementVerificationMembership): ${unverified.map((r) => r.name ?? r.id).join(", ")}`
           );
         }
 
-        const unbacktraced = requirements.filter((r) => !backwardTracedIds.has(r.id));
+        const unbacktraced = systemReqs.filter((r) => !backwardTracedIds.has(r.id));
         if (unbacktraced.length > 0) {
           issues.push(
-            `${unbacktraced.length} requirements missing backward trace (no DeriveRequirementUsage): ${unbacktraced.map((r) => r.name ?? r.id).join(", ")}`
+            `${unbacktraced.length} system requirements missing backward trace (no DeriveRequirementUsage to a Need): ${unbacktraced.map((r) => r.name ?? r.id).join(", ")}`
+          );
+        }
+
+        if (uncoveredNeeds.length > 0) {
+          issues.push(
+            `${uncoveredNeeds.length} stakeholder needs not covered (no incoming DeriveRequirementUsage): ${uncoveredNeeds.map((n) => n.name ?? n.id).join(", ")}`
           );
         }
 
         if (orphanElements.length > 0) {
           issues.push(
-            `${orphanElements.length} design elements have no satisfy/allocate/derive edge in either direction (orphans): ${orphanElements.map((e) => e.name ?? e.id).join(", ")}`
+            `${orphanElements.length} leaf design elements have no satisfy/allocate/derive edge in either direction (orphans): ${orphanElements.map((e) => e.name ?? e.id).join(", ")}`
           );
         }
 
@@ -190,6 +217,12 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
                     forwardPercent,
                     verifyPercent,
                     backwardPercent,
+                    needCoverage: {
+                      percent: needCoveragePercent,
+                      total: totalNeeds,
+                      covered: coveredNeedIds.size,
+                      uncovered: uncoveredNeeds,
+                    },
                     orphanElements,
                     provenanceCoverage,
                     elementsMissingBackpointer,
