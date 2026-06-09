@@ -90,6 +90,10 @@ export const SYSML_RELATIONSHIP_TYPES = [
   "Annotation",
   "SatisfyRequirementUsage",
   "RequirementVerificationMembership",
+  "VerifyRequirementUsage",
+  "DeriveRequirementUsage",
+  "AllocationUsage",
+  "TraceRequirementUsage",
 ] as const;
 
 export type SysmlDefinitionType = (typeof SYSML_DEFINITION_TYPES)[number];
