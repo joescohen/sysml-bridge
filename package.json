@@ -28,7 +28,8 @@
     "build": "pnpm -r build",
     "dev": "pnpm --filter mcp-server dev",
     "test": "pnpm -r test",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "validate:sysml": "tools/sysml-validator/run.sh"
   },
   "engines": {
     "node": ">=20"
