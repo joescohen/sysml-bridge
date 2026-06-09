@@ -131,4 +131,38 @@ describe("serializeToSysml", () => {
     );
     expect(result.endsWith("\n")).toBe(true);
   });
+
+  it("emits a satisfy statement for SatisfyRequirementUsage", () => {
+    const req = el({ id: "r1", type: "RequirementDefinition", name: "AircraftIDVerification" });
+    const act = el({ id: "a1", type: "ActionDefinition", name: "ReceiveAuthenticateRequest" });
+    const rel: SysmlRelationship = { id: "rel1", type: "SatisfyRequirementUsage", sourceIds: ["a1"], targetIds: ["r1"], raw: {} };
+    expect(serializeToSysml([req, act], [rel])).toContain("satisfy AircraftIDVerification by ReceiveAuthenticateRequest;");
+  });
+  it("emits an allocate statement for AllocationUsage", () => {
+    const fn = el({ id: "f1", type: "ActionDefinition", name: "ReceiveAuthenticateRequest" });
+    const comp = el({ id: "c1", type: "PartDefinition", name: "FlightControlModule" });
+    const rel: SysmlRelationship = { id: "rel2", type: "AllocationUsage", sourceIds: ["f1"], targetIds: ["c1"], raw: {} };
+    expect(serializeToSysml([fn, comp], [rel])).toContain("allocate ReceiveAuthenticateRequest to FlightControlModule;");
+  });
+  it("emits a verify statement for VerifyRequirementUsage (top-level form, pending Cameo spike)", () => {
+    const req = el({ id: "r1", type: "RequirementDefinition", name: "AircraftIDVerification" });
+    const ver = el({ id: "v1", type: "VerificationCaseDefinition", name: "AuthVerification" });
+    const rel: SysmlRelationship = { id: "rel3", type: "VerifyRequirementUsage", sourceIds: ["v1"], targetIds: ["r1"], raw: {} };
+    expect(serializeToSysml([req, ver], [rel])).toContain("verify AircraftIDVerification by AuthVerification;");
+  });
+  it("emits a dependency statement for DeriveRequirementUsage (Need->Req)", () => {
+    const need = el({ id: "n1", type: "RequirementDefinition", name: "N4_AuthenticationSecurity" });
+    const req = el({ id: "r1", type: "RequirementDefinition", name: "AircraftIDVerification" });
+    const rel: SysmlRelationship = { id: "rel4", type: "DeriveRequirementUsage", sourceIds: ["r1"], targetIds: ["n1"], raw: {} };
+    expect(serializeToSysml([need, req], [rel])).toContain("dependency from AircraftIDVerification to N4_AuthenticationSecurity;");
+  });
+  it("skips relationships whose endpoints are not in the element set", () => {
+    const req = el({ id: "r1", type: "RequirementDefinition", name: "AircraftIDVerification" });
+    const rel: SysmlRelationship = { id: "rel5", type: "SatisfyRequirementUsage", sourceIds: ["missing"], targetIds: ["r1"], raw: {} };
+    expect(serializeToSysml([req], [rel])).not.toContain("satisfy");
+  });
+  it("emits a provenance comment when an element carries a source id", () => {
+    const req = el({ id: "r1", type: "RequirementDefinition", name: "AircraftIDVerification", raw: { provenanceSourceId: "ANGARS-4" } });
+    expect(serializeToSysml([req], [])).toContain("// @source: ANGARS-4");
+  });
 });

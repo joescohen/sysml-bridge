@@ -4,6 +4,25 @@ import type { SysmlElement, SysmlRelationship } from "../types/sysml-elements.js
 // SysML v2 type → textual keyword mapping
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// SysML v2 trace relationship → textual statement emitters
+// NOTE on VerifyRequirementUsage / RequirementVerificationMembership:
+//   Using the top-level `verify <req> by <vcase>;` form here.
+//   If Cameo CE import rejects this, switch to the nested form:
+//     verification def V { verify <req>; }
+//   Tracked as a pending spike in Task 0 (Cameo CE import validation).
+// ---------------------------------------------------------------------------
+
+const TRACE_EMIT: Record<string, (src: string, tgt: string) => string> = {
+  SatisfyRequirementUsage: (src, tgt) => `satisfy ${tgt} by ${src};`,
+  AllocationUsage: (src, tgt) => `allocate ${src} to ${tgt};`,
+  // top-level form; pending Cameo CE import spike (Task 0). If Cameo rejects it, switch to the nested `verification def V { verify <req>; }` form.
+  VerifyRequirementUsage: (src, tgt) => `verify ${tgt} by ${src};`,
+  RequirementVerificationMembership: (src, tgt) => `verify ${tgt} by ${src};`,
+  DeriveRequirementUsage: (src, tgt) => `dependency from ${src} to ${tgt};`,
+  TraceRequirementUsage: (src, tgt) => `dependency from ${src} to ${tgt};`,
+};
+
 const TYPE_TO_KEYWORD: Record<string, string> = {
   Package: "package",
   PartDefinition: "part def",
@@ -80,6 +99,27 @@ export function serializeToSysml(
     serializeElement(root, elementById, 0, lines);
   }
 
+  // Emit trace relationship statements
+  const traceLines: string[] = [];
+  for (const rel of relationships) {
+    const emitter = TRACE_EMIT[rel.type];
+    if (!emitter) continue;
+
+    const srcName = refName(rel.sourceIds[0], elementById);
+    const tgtName = refName(rel.targetIds[0], elementById);
+    if (srcName === null || tgtName === null) continue;
+
+    traceLines.push(emitter(srcName, tgtName));
+  }
+
+  if (traceLines.length > 0) {
+    lines.push("");
+    lines.push("// traceability");
+    for (const tl of traceLines) {
+      lines.push(tl);
+    }
+  }
+
   // Ensure output ends with a single newline
   let result = lines.join("\n");
   if (!result.endsWith("\n")) {
@@ -121,17 +161,37 @@ function serializeElement(
     (e) => e.ownerId === element.id
   );
 
+  // Append provenance comment if the element carries a source id
+  const provenanceSourceId = element.raw.provenanceSourceId;
+  const provenanceSuffix =
+    typeof provenanceSourceId === "string" && provenanceSourceId.length > 0
+      ? `  // @source: ${provenanceSourceId}`
+      : "";
+
   if (children.length > 0) {
-    lines.push(`${header} {`);
+    lines.push(`${header} {${provenanceSuffix}`);
     for (const child of children) {
       serializeElement(child, elementById, depth + 1, lines);
     }
     lines.push(`${prefix}}`);
   } else {
-    lines.push(`${header};`);
+    lines.push(`${header};${provenanceSuffix}`);
   }
 }
 
 function isValidIdentifier(name: string): boolean {
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name);
+}
+
+function refName(
+  id: string | undefined,
+  elementById: Map<string, SysmlElement>
+): string | null {
+  if (id === undefined) return null;
+  const element = elementById.get(id);
+  if (!element) return null;
+  if (element.name === null) return null;
+  return isValidIdentifier(element.name)
+    ? element.name
+    : `'${element.name}'`;
 }
