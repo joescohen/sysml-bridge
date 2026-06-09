@@ -14,9 +14,9 @@ export function registerExportSysml(server: McpServer, smaps: ModelStore) {
       try {
         const elements = await smaps.queryElements();
         const relationships = await smaps.queryRelationships();
-        // Relationship-elements (satisfy/verify/allocate/etc.) are not yet
-        // emitted as first-class textual statements by the serializer, so
-        // exclude them here to keep the .sysml clean for Cameo import.
+        // Filter relationship-elements out of the element tree so they are
+        // emitted exactly once — as `// traceability` statements by the
+        // serializer — not also as standalone element declarations.
         const relationshipIds = new Set(relationships.map((r) => r.id));
         const structuralElements = elements.filter((e) => !relationshipIds.has(e.id));
         const sysmlText = serializeToSysml(structuralElements, relationships);
