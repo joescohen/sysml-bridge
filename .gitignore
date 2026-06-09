@@ -14,6 +14,8 @@ examples/**/.mbse-session.json
 # Raw input corpus and the human-built reference model stay local-only.
 examples/angars/corpus/
 examples/angars/reference-model/
+# ANGARS extracted model artifacts — generated output, not source-controlled.
+examples/angars/model/
 
 # Internal planning/research artifacts (not for public repo)
 .planning/
