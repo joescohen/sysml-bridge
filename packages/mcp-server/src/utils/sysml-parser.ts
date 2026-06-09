@@ -16,16 +16,31 @@ export interface ParsedElement {
   shortName?: string;
   typedBy?: string;
   specializes?: string;
+  /** Redefinition base captured from `:>> base`. */
+  redefines?: string;
+  /** Multiplicity captured from `[mult]` (e.g. "4", "1..*", "*"). */
+  multiplicity?: string;
   children: ParsedElement[];
   attributes: Record<string, unknown>;
 }
 
 export interface ParsedRelationship {
-  type: "satisfy" | "verify" | "allocate" | "dependency";
+  type:
+    | "satisfy"
+    | "verify"
+    | "allocate"
+    | "dependency"
+    | "connect"
+    | "bind"
+    | "succession"
+    | "flow"
+    | "transition";
   requirement?: string;
   by?: string;
   from?: string;
   to?: string;
+  /** Connection name for `connection L connect a to b;`. */
+  name?: string;
 }
 
 export interface ParseResult {
@@ -130,6 +145,8 @@ const SKIP_PREFIXES = new Set([
   "precondition",
   "assert",
   "doc",
+  "actor",
+  "include",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -160,6 +177,9 @@ function parseElementRest(rest: string): {
   shortName?: string;
   typedBy?: string;
   specializes?: string;
+  redefines?: string;
+  multiplicity?: string;
+  value?: string;
 } | null {
   let remaining = rest.trim();
 
@@ -186,25 +206,60 @@ function parseElementRest(rest: string): {
   }
 
   // 3. Remove trailing `;` or `{` and whatever follows
-  //    But first capture typing / specialization annotations.
+  //    But first capture typing / specialization / redefinition / multiplicity.
 
-  // Look for `:>` (specialization) — must come before `:` check
+  // Look for `:>>` (redefinition) — must be checked before `:>` and `:`.
+  let redefines: string | undefined;
+  const redefinesMatch = remaining.match(/:>>\s*([a-zA-Z_][a-zA-Z0-9_:.]*)/);
+  if (redefinesMatch) {
+    redefines = redefinesMatch[1];
+  }
+
+  // Look for `:>` (specialization / subsetting) that is NOT `:>>`.
+  // Strip any `:>>` occurrences first so we don't match their `:>` prefix.
   let specializes: string | undefined;
-  const specializesMatch = remaining.match(/:>\s*([a-zA-Z_][a-zA-Z0-9_:.]*)/);
+  const withoutRedefines = remaining.replace(/:>>[^;{]*/g, "");
+  const specializesMatch = withoutRedefines.match(/:>\s*([a-zA-Z_][a-zA-Z0-9_:.]*)/);
   if (specializesMatch) {
     specializes = specializesMatch[1];
   }
 
-  // Look for `:` that is NOT part of `:>` (typing)
+  // Look for `:` that is NOT part of `:>` / `:>>` (typing)
   let typedBy: string | undefined;
-  // Replace :> so we don't accidentally match it as ":"
-  const withoutSpecializes = remaining.replace(/:>[^;{]*/g, "");
+  // Replace :>> and :> so we don't accidentally match them as ":"
+  const withoutSpecializes = remaining
+    .replace(/:>>[^;{]*/g, "")
+    .replace(/:>[^;{]*/g, "");
   const typedByMatch = withoutSpecializes.match(/:\s*([a-zA-Z_][a-zA-Z0-9_:.]*)/);
   if (typedByMatch) {
     typedBy = typedByMatch[1];
   }
 
-  return { name, shortName, typedBy, specializes };
+  // Multiplicity: `[mult]` (e.g. [4], [1..*], [*]). Capture the inner text.
+  let multiplicity: string | undefined;
+  const multMatch = remaining.match(/\[\s*([^\]]+?)\s*\]/);
+  if (multMatch) {
+    multiplicity = multMatch[1];
+  }
+
+  // Value: ` = <value>` (e.g. `attribute capacity = 100`). Capture the literal
+  // up to the statement terminator / body open. Excludes `:>>`/`:>` (handled
+  // above) since those use `:`/`>` not `=`.
+  let value: string | undefined;
+  const valueMatch = remaining.match(/=\s*([^;{]+?)\s*(?:[;{]|$)/);
+  if (valueMatch) {
+    value = valueMatch[1].trim();
+  }
+
+  return {
+    name,
+    shortName,
+    typedBy,
+    specializes,
+    redefines,
+    multiplicity,
+    value,
+  };
 }
 
 /**
@@ -217,6 +272,9 @@ function matchElement(line: string): {
   shortName?: string;
   typedBy?: string;
   specializes?: string;
+  redefines?: string;
+  multiplicity?: string;
+  value?: string;
 } | null {
   for (const keyword of SORTED_KEYWORDS) {
     // Keyword must be followed by a space (not just a prefix of another word)
@@ -275,6 +333,52 @@ function matchRelationship(line: string): ParsedRelationship | null {
   const dependencyMatch = line.match(/^dependency\s+from\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s+to\s+([a-zA-Z_][a-zA-Z0-9_.]*)/);
   if (dependencyMatch) {
     return { type: "dependency", from: dependencyMatch[1], to: dependencyMatch[2] };
+  }
+
+  // connection <name> connect <a> to <b>;  (named connection)
+  const namedConnectMatch = line.match(
+    /^connection\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+connect\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s+to\s+([a-zA-Z_][a-zA-Z0-9_.]*)/
+  );
+  if (namedConnectMatch) {
+    return {
+      type: "connect",
+      name: namedConnectMatch[1],
+      from: namedConnectMatch[2],
+      to: namedConnectMatch[3],
+    };
+  }
+
+  // connect <a> to <b>;
+  const connectMatch = line.match(/^connect\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s+to\s+([a-zA-Z_][a-zA-Z0-9_.]*)/);
+  if (connectMatch) {
+    return { type: "connect", from: connectMatch[1], to: connectMatch[2] };
+  }
+
+  // bind <a> = <b>;
+  const bindMatch = line.match(/^bind\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s*=\s*([a-zA-Z_][a-zA-Z0-9_.]*)/);
+  if (bindMatch) {
+    return { type: "bind", from: bindMatch[1], to: bindMatch[2] };
+  }
+
+  // transition first <s1> then <s2>;  (checked before the bare first..then)
+  const transitionMatch = line.match(
+    /^transition\s+first\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s+then\s+([a-zA-Z_][a-zA-Z0-9_.]*)/
+  );
+  if (transitionMatch) {
+    return { type: "transition", from: transitionMatch[1], to: transitionMatch[2] };
+  }
+
+  // first <a> then <b>;  (succession)
+  const successionMatch = line.match(/^first\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s+then\s+([a-zA-Z_][a-zA-Z0-9_.]*)/);
+  if (successionMatch) {
+    return { type: "succession", from: successionMatch[1], to: successionMatch[2] };
+  }
+
+  // flow from <a> to <b>;  (only the `from .. to ..` shape; `flow of ..` falls
+  // through to the skip-prefix handling so it is not mis-parsed)
+  const flowMatch = line.match(/^flow\s+from\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s+to\s+([a-zA-Z_][a-zA-Z0-9_.]*)/);
+  if (flowMatch) {
+    return { type: "flow", from: flowMatch[1], to: flowMatch[2] };
   }
 
   return null;
@@ -396,6 +500,9 @@ export function parseSysml(text: string): ParseResult {
         if (elMatch.shortName !== undefined) el.shortName = elMatch.shortName;
         if (elMatch.typedBy !== undefined) el.typedBy = elMatch.typedBy;
         if (elMatch.specializes !== undefined) el.specializes = elMatch.specializes;
+        if (elMatch.redefines !== undefined) el.redefines = elMatch.redefines;
+        if (elMatch.multiplicity !== undefined) el.multiplicity = elMatch.multiplicity;
+        if (elMatch.value !== undefined) el.attributes.value = elMatch.value;
         currentList.push(el);
         continue;
       }

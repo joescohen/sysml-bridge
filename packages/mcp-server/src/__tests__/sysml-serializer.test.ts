@@ -144,11 +144,21 @@ describe("serializeToSysml", () => {
     const rel: SysmlRelationship = { id: "rel2", type: "AllocationUsage", sourceIds: ["f1"], targetIds: ["c1"], raw: {} };
     expect(serializeToSysml([fn, comp], [rel])).toContain("allocate ReceiveAuthenticateRequest to FlightControlModule;");
   });
-  it("emits a verify statement for VerifyRequirementUsage (top-level form, pending Cameo spike)", () => {
-    const req = el({ id: "r1", type: "RequirementDefinition", name: "AircraftIDVerification" });
+  it("emits verify as a nested objective body in the verification def (not top-level)", () => {
+    const req = el({ id: "r1", type: "RequirementUsage", name: "AircraftIDVerification" });
     const ver = el({ id: "v1", type: "VerificationCaseDefinition", name: "AuthVerification" });
     const rel: SysmlRelationship = { id: "rel3", type: "VerifyRequirementUsage", sourceIds: ["v1"], targetIds: ["r1"], raw: {} };
-    expect(serializeToSysml([req, ver], [rel])).toContain("verify AircraftIDVerification by AuthVerification;");
+    const out = serializeToSysml([req, ver], [rel]);
+
+    // Nested form: verification def { objective { verify <reqUsage>; } }
+    expect(out).toContain("verification def AuthVerification {");
+    expect(out).toContain("objective {");
+    expect(out).toContain("verify AircraftIDVerification;");
+
+    // Negative: there must be NO top-level `verify ... by ...` line, and no
+    // package-level `verify` (only the indented one inside objective {}).
+    expect(out).not.toMatch(/^\s*verify .* by /m);
+    expect(out).not.toMatch(/^verify /m);
   });
   it("emits a dependency statement for DeriveRequirementUsage (Need->Req)", () => {
     const need = el({ id: "n1", type: "RequirementDefinition", name: "N4_AuthenticationSecurity" });

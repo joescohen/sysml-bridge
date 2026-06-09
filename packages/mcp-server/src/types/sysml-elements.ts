@@ -94,6 +94,12 @@ export const SYSML_RELATIONSHIP_TYPES = [
   "DeriveRequirementUsage",
   "AllocationUsage",
   "TraceRequirementUsage",
+  // Round-3 nested-statement + use-case relationships recognized by the
+  // serializer (connect/flow/succession/transition handled elsewhere too).
+  "Succession",
+  "Flow",
+  "Transition",
+  "IncludeUseCase",
 ] as const;
 
 export type SysmlDefinitionType = (typeof SYSML_DEFINITION_TYPES)[number];

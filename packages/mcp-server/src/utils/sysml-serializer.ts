@@ -6,22 +6,163 @@ import type { SysmlElement, SysmlRelationship } from "../types/sysml-elements.js
 
 // ---------------------------------------------------------------------------
 // SysML v2 trace relationship → textual statement emitters
-// NOTE on VerifyRequirementUsage / RequirementVerificationMembership:
-//   Using the top-level `verify <req> by <vcase>;` form here.
-//   If Cameo CE import rejects this, switch to the nested form:
-//     verification def V { verify <req>; }
-//   Tracked as a pending spike in Task 0 (Cameo CE import validation).
+//
+// Trace operands MUST be USAGES (Features), never definitions — this follows
+// from the grammar (satisfyRequirementUsage / allocationUsageDeclaration /
+// dependency connect Features). The presentation projection (cc-presentation.ts)
+// guarantees the operands passed here are package-level usages.
+//
+// `verify` is NOT emitted here. There is no top-level `verify` production: the
+// only legal placement is as a requirementVerificationMember inside the
+// `objective { ... }` of a `verification def`. VerifyRequirementUsage /
+// RequirementVerificationMembership are therefore handled structurally (a
+// nested objective body on the VerificationCaseDefinition), not in this flat
+// trace path.
 // ---------------------------------------------------------------------------
 
 const TRACE_EMIT: Record<string, (src: string, tgt: string) => string> = {
   SatisfyRequirementUsage: (src, tgt) => `satisfy ${tgt} by ${src};`,
   AllocationUsage: (src, tgt) => `allocate ${src} to ${tgt};`,
-  // top-level form; pending Cameo CE import spike (Task 0). If Cameo rejects it, switch to the nested `verification def V { verify <req>; }` form.
-  VerifyRequirementUsage: (src, tgt) => `verify ${tgt} by ${src};`,
-  RequirementVerificationMembership: (src, tgt) => `verify ${tgt} by ${src};`,
   DeriveRequirementUsage: (src, tgt) => `dependency from ${src} to ${tgt};`,
   TraceRequirementUsage: (src, tgt) => `dependency from ${src} to ${tgt};`,
 };
+
+// Verify relationships are emitted as nested objective bodies, not flat lines.
+const VERIFY_REL_TYPES = new Set([
+  "VerifyRequirementUsage",
+  "RequirementVerificationMembership",
+]);
+
+// ---------------------------------------------------------------------------
+// Header-suffix relationships
+//
+// These modify an element's declaration (appended before the `;` / `{`):
+//   Specialization / Subclassification  →  ` :> <baseName>`  (DEFINITION only)
+//   Subsetting                           →  ` :> <baseName>`  (USAGE→USAGE)
+//   Redefinition                         →  ` :>> <baseName>` (USAGE→USAGE)
+//
+// The grammar uses `:>` for both subclassification (on definitions) and
+// subsetting (on usages); `:>>` is redefinition. BUT the grammar is laxer than
+// Cameo's *semantics*: Cameo rejects `:>` on a usage whose target is a
+// Definition (a usage cannot specialize a Definition — `:>` on a usage is
+// SUBSETTING and the target must itself be a Feature/usage). So the emitter is
+// def-vs-usage aware:
+//   - Specialization rel: emit `:> X` ONLY when the SOURCE is a Definition.
+//   - On a USAGE source: emit `:> X` only for a Subsetting rel whose TARGET is
+//     a usage (feature); emit `:>> X` for Redefinition whose target is a usage.
+//   - A Specialization rel whose source is a usage is SKIPPED (invalid form).
+// ---------------------------------------------------------------------------
+
+function isDefinitionType(type: string): boolean {
+  return type.endsWith("Definition");
+}
+
+function isUsageType(type: string): boolean {
+  return type.endsWith("Usage");
+}
+
+/**
+ * Decide the header-suffix operator (`:>` / `:>>`) for a relationship given the
+ * resolved source and target elements, applying Cameo's def-vs-usage semantics.
+ * Returns null when the form is invalid and must be suppressed.
+ */
+function headerSuffixOp(
+  relType: string,
+  source: SysmlElement,
+  target: SysmlElement | undefined
+): ":>" | ":>>" | null {
+  switch (relType) {
+    case "Specialization":
+    case "Subclassification":
+      // `:>` specialization is valid ONLY on a Definition source.
+      return isDefinitionType(source.type) ? ":>" : null;
+    case "Subsetting":
+      // `:>` subsetting is valid on a Usage source AND requires a Usage
+      // (feature) target — never a Definition.
+      if (isUsageType(source.type) && target && isUsageType(target.type)) {
+        return ":>";
+      }
+      // A subsetting on a definition is just subclassification → `:>`.
+      if (isDefinitionType(source.type)) return ":>";
+      return null;
+    case "Redefinition":
+      // `:>>` redefinition is valid on a Usage source against a Usage target.
+      if (isUsageType(source.type) && target && isUsageType(target.type)) {
+        return ":>>";
+      }
+      return null;
+    default:
+      return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Nested-statement relationships
+//
+// These are emitted INSIDE the body of the common owner of their two
+// endpoints, after the owner's child elements. Each maps an ordered
+// (src, tgt) reference pair to a grammar-valid statement.
+// ---------------------------------------------------------------------------
+
+type NestedKind =
+  | "connect"
+  | "bind"
+  | "succession"
+  | "flow"
+  | "transition"
+  | "interface";
+
+const NESTED_REL_KIND: Record<string, NestedKind> = {
+  Connector: "connect",
+  ConnectionUsage: "connect",
+  BindingConnector: "bind",
+  Succession: "succession",
+  SuccessionAsUsage: "succession",
+  Flow: "flow",
+  FlowConnectionUsage: "flow",
+  Transition: "transition",
+  TransitionUsage: "transition",
+  InterfaceUsage: "interface",
+};
+
+function nestedStatement(
+  kind: NestedKind,
+  src: string,
+  tgt: string,
+  name: string | null,
+  payloadType?: string | null,
+  typeName?: string | null
+): string {
+  switch (kind) {
+    case "connect":
+      return name !== null
+        ? `connection ${name} connect ${src} to ${tgt};`
+        : `connect ${src} to ${tgt};`;
+    case "bind":
+      return `bind ${src} = ${tgt};`;
+    case "succession":
+      return `first ${src} then ${tgt};`;
+    case "transition":
+      return `transition first ${src} then ${tgt};`;
+    case "flow":
+      // Typed item flow: `flow of <Type> from <src> to <tgt>;`.
+      if (payloadType) {
+        return `flow of ${quoteName(payloadType)} from ${src} to ${tgt};`;
+      }
+      return `flow from ${src} to ${tgt};`;
+    case "interface":
+      // `interface <name> connect a to b;` (optionally typed:
+      // `interface <name> : <Type> connect a to b;`).
+      if (name !== null) {
+        const typed =
+          typeof typeName === "string" && typeName.length > 0
+            ? ` : ${quoteName(typeName)}`
+            : "";
+        return `interface ${name}${typed} connect ${src} to ${tgt};`;
+      }
+      return `interface connect ${src} to ${tgt};`;
+  }
+}
 
 const TYPE_TO_KEYWORD: Record<string, string> = {
   Package: "package",
@@ -73,6 +214,67 @@ const TYPE_TO_KEYWORD: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Internal: a resolved nested statement keyed by its owner.
+// ---------------------------------------------------------------------------
+
+interface NestedStmt {
+  ownerId: string;
+  text: string;
+}
+
+// ---------------------------------------------------------------------------
+// Invariant context threaded through the recursive element serializer. Only
+// `element`/`parent`/`depth` change between recursion levels; everything here
+// is built once in serializeToSysml and shared by reference. `childrenByOwner`
+// is pre-filtered (suppressed connection-like elements removed), so the
+// recursion needs no separate suppressed-id set.
+// ---------------------------------------------------------------------------
+
+interface SerializeCtx {
+  elementById: Map<string, SysmlElement>;
+  childrenByOwner: Map<string, SysmlElement[]>;
+  lines: string[];
+  verifyByCase: Map<string, string[]>;
+  headerSuffixById: Map<string, string[]>;
+  nestedByOwner: Map<string, string[]>;
+}
+
+// ---------------------------------------------------------------------------
+// SysML standard-library scalar value types (TF-10).
+//
+// When any referenced typeName is one of these, the model needs the
+// ScalarValues library in scope. We emit a single `import ScalarValues::*;` at
+// the very top of the output so Cameo (and the grammar) resolve `Real`,
+// `Integer`, etc. The import is emitted ONLY when at least one such type is
+// referenced, so models that use no scalar types (ANGARS, round-2 demos) are
+// byte-identical to before.
+// ---------------------------------------------------------------------------
+
+const SCALAR_VALUE_TYPES = new Set([
+  "Real",
+  "Integer",
+  "Boolean",
+  "String",
+  "Natural",
+  "Rational",
+  "Complex",
+  "ScalarValue",
+]);
+
+/**
+ * True if any element in the model references a standard scalar value type via
+ * its `raw.typeName`. Scans all elements (typing is the only place a scalar
+ * type name appears in serialized output).
+ */
+function referencesScalarType(elements: SysmlElement[]): boolean {
+  for (const e of elements) {
+    const t = e.raw?.typeName;
+    if (typeof t === "string" && SCALAR_VALUE_TYPES.has(t)) return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -88,18 +290,178 @@ export function serializeToSysml(
     elements.map((e) => [e.id, e])
   );
 
+  // Name -> first element id with that name, for O(1) endpoint resolution by
+  // name (first-wins mirrors the previous linear scan over insertion order).
+  const idByName = new Map<string, string>();
+  for (const e of elements) {
+    if (e.name !== null && !idByName.has(e.name)) idByName.set(e.name, e.id);
+  }
+
   // Find root elements: those whose ownerId is null or not present in the element set
   const roots = elements.filter(
     (e) => e.ownerId === null || !elementIds.has(e.ownerId)
   );
 
-  const lines: string[] = [];
-
-  for (const root of roots) {
-    serializeElement(root, elementById, 0, lines);
+  // Group verify relationships by their verification-case source id so each
+  // VerificationCaseDefinition can emit a nested `objective { verify ...; }`
+  // body. Map: verificationCaseId -> [requirement reference names].
+  const verifyByCase = new Map<string, string[]>();
+  for (const rel of relationships) {
+    if (!VERIFY_REL_TYPES.has(rel.type)) continue;
+    const caseId = rel.sourceIds[0];
+    const reqName = refName(rel.targetIds[0], elementById);
+    if (caseId === undefined || reqName === null) continue;
+    if (!elementIds.has(caseId)) continue;
+    if (!verifyByCase.has(caseId)) verifyByCase.set(caseId, []);
+    verifyByCase.get(caseId)!.push(reqName);
   }
 
-  // Emit trace relationship statements
+  // ----- Header-suffix relationships (Specialization/Subsetting/Redefinition)
+  // Map: sourceElementId -> array of suffix fragments (" :> Base", " :>> Base").
+  // Cameo's def-vs-usage semantics are enforced by headerSuffixOp(): an invalid
+  // form (e.g. a usage `:>` a Definition) is suppressed rather than emitted.
+  const headerSuffixById = new Map<string, string[]>();
+  for (const rel of relationships) {
+    const srcId = rel.sourceIds[0];
+    if (srcId === undefined || !elementIds.has(srcId)) continue;
+    const source = elementById.get(srcId);
+    if (!source) continue;
+    const tgtId = rel.targetIds[0];
+    const target = tgtId !== undefined ? elementById.get(tgtId) : undefined;
+    const op = headerSuffixOp(rel.type, source, target);
+    if (op === null) continue;
+    const baseName = refName(tgtId, elementById);
+    if (baseName === null) continue;
+    if (!headerSuffixById.has(srcId)) headerSuffixById.set(srcId, []);
+    headerSuffixById.get(srcId)!.push(` ${op} ${baseName}`);
+  }
+
+  // ----- Nested-statement relationships (connect / bind / first..then /
+  // flow / transition). Resolve each to a (ownerId, text) pair, grouped later
+  // by owner so we can emit them inside the right body.
+  const nestedByOwner = new Map<string, string[]>();
+
+  // Track element ids that are themselves connection-like elements
+  // (ConnectionUsage / FlowConnectionUsage / TransitionUsage) so we do NOT
+  // also emit them as ordinary element declarations.
+  const suppressedElementIds = new Set<string>();
+
+  // (a) Relationship-shaped nested rels (Connector, Succession, Transition,
+  // Flow...). A "Flow" rel may carry raw.payloadType for a typed item flow.
+  for (const rel of relationships) {
+    const kind = NESTED_REL_KIND[rel.type];
+    if (!kind) continue;
+    const payloadType =
+      kind === "flow" && typeof rel.raw?.payloadType === "string"
+        ? (rel.raw.payloadType as string)
+        : null;
+    const stmt = resolveNestedFromEndpoints(
+      kind,
+      rel.sourceIds[0],
+      rel.targetIds[0],
+      typeof rel.raw?.name === "string" ? (rel.raw.name as string) : null,
+      typeof rel.raw?.ownerId === "string" ? (rel.raw.ownerId as string) : undefined,
+      elementById,
+      elementIds,
+      payloadType
+    );
+    if (stmt) addNested(nestedByOwner, stmt);
+  }
+
+  // (b) Element-shaped nested rels (ConnectionUsage / FlowConnectionUsage /
+  // TransitionUsage / InterfaceUsage elements carrying raw.sourceEnd +
+  // raw.targetEnd). These live in the element tree but must be emitted as
+  // statements, not blocks.
+  for (const e of elements) {
+    const kind = NESTED_REL_KIND[e.type];
+    if (!kind) continue;
+    const srcEnd = e.raw?.sourceEnd;
+    const tgtEnd = e.raw?.targetEnd;
+    if (srcEnd === undefined || tgtEnd === undefined) continue;
+    // Resolve endpoint refs (by id if it matches an element, else literal name).
+    const srcId = resolveEndpointId(srcEnd, elementIds, idByName);
+    const tgtId = resolveEndpointId(tgtEnd, elementIds, idByName);
+    // ConnectionUsage and InterfaceUsage carry a name in the statement
+    // (`connection L ...` / `interface L ...`).
+    const stmtName = kind === "connect" || kind === "interface" ? e.name : null;
+    // FlowConnectionUsage may carry a typed payload (`flow of <Type> ...`).
+    const payloadType =
+      kind === "flow" && typeof e.raw?.payloadType === "string"
+        ? (e.raw.payloadType as string)
+        : null;
+    // InterfaceUsage may be typed (`interface L : <Type> connect ...`).
+    const ifaceType =
+      kind === "interface" && typeof e.raw?.typeName === "string"
+        ? (e.raw.typeName as string)
+        : null;
+    const stmt = resolveNestedFromEndpoints(
+      kind,
+      srcId,
+      tgtId,
+      stmtName,
+      e.ownerId ?? undefined,
+      elementById,
+      elementIds,
+      payloadType,
+      ifaceType
+    );
+    if (stmt) {
+      addNested(nestedByOwner, stmt);
+      suppressedElementIds.add(e.id);
+    }
+  }
+
+  // ----- Include use-case relationships. An `IncludeUseCase` / `Include` rel
+  // whose SOURCE is a UseCaseDefinition emits `include use case <targetName>;`
+  // inside that def's body, after its children. These are merged into
+  // nestedByOwner so they flow through the same body-emission path.
+  for (const rel of relationships) {
+    if (rel.type !== "IncludeUseCase" && rel.type !== "Include") continue;
+    const srcId = rel.sourceIds[0];
+    if (srcId === undefined || !elementIds.has(srcId)) continue;
+    const tgtName = refName(rel.targetIds[0], elementById);
+    if (tgtName === null) continue;
+    addNested(nestedByOwner, {
+      ownerId: srcId,
+      text: `include use case ${tgtName};`,
+    });
+  }
+
+  // Group non-suppressed elements by owner id ONCE, so each element's children
+  // are an O(1) lookup instead of a full O(n) re-scan per recursion level.
+  // Built after suppressedElementIds is finalized; insertion order mirrors the
+  // previous per-element filter over elementById.values().
+  const childrenByOwner = new Map<string, SysmlElement[]>();
+  for (const e of elementById.values()) {
+    if (e.ownerId === null || suppressedElementIds.has(e.id)) continue;
+    if (!childrenByOwner.has(e.ownerId)) childrenByOwner.set(e.ownerId, []);
+    childrenByOwner.get(e.ownerId)!.push(e);
+  }
+
+  const lines: string[] = [];
+
+  // TF-10: emit `import ScalarValues::*;` at the very top when the model
+  // references any standard scalar value type (Real, Integer, ...). Only when
+  // needed — so scalar-free models stay byte-identical.
+  if (referencesScalarType(elements)) {
+    lines.push("import ScalarValues::*;");
+    lines.push("");
+  }
+
+  const ctx: SerializeCtx = {
+    elementById,
+    childrenByOwner,
+    lines,
+    verifyByCase,
+    headerSuffixById,
+    nestedByOwner,
+  };
+
+  for (const root of roots) {
+    serializeElement(root, null, 0, ctx);
+  }
+
+  // Emit trace relationship statements (flat, package-level — usages only).
   const traceLines: string[] = [];
   for (const rel of relationships) {
     const emitter = TRACE_EMIT[rel.type];
@@ -120,6 +482,16 @@ export function serializeToSysml(
     }
   }
 
+  // Any nested statements whose owner was NOT emitted at all (e.g. the owner
+  // id is not in the element set / unresolved) are appended at the end so they
+  // are not silently dropped. An owner that IS in the element set always opens
+  // a body (the serializer opens one when it has children OR nested
+  // statements), so this backstop only fires for orphan owners.
+  for (const [ownerId, stmts] of nestedByOwner) {
+    if (elementIds.has(ownerId)) continue;
+    for (const s of stmts) lines.push(s);
+  }
+
   // Ensure output ends with a single newline
   let result = lines.join("\n");
   if (!result.endsWith("\n")) {
@@ -135,12 +507,42 @@ export function serializeToSysml(
 
 function serializeElement(
   element: SysmlElement,
-  elementById: Map<string, SysmlElement>,
+  parent: SysmlElement | null,
   depth: number,
-  lines: string[]
+  ctx: SerializeCtx
 ): void {
+  const { lines } = ctx;
   const prefix = "  ".repeat(depth);
-  const keyword = TYPE_TO_KEYWORD[element.type] ?? element.type;
+
+  // ----- Enumeration literal: a child of an EnumerationDefinition is emitted
+  // as a BARE `<name>;` (no `enum` keyword), e.g. `enum def Color { red; ... }`.
+  if (
+    parent !== null &&
+    parent.type === "EnumerationDefinition" &&
+    element.name !== null
+  ) {
+    lines.push(`${prefix}${quoteName(element.name)};`);
+    return;
+  }
+
+  // ----- Keyword selection. Two context-dependent special cases:
+  //   - an `end`-tagged PortUsage inside an interface def → keyword `end`.
+  //   - an `actor`-tagged usage inside a use case def     → keyword `actor`.
+  let keyword = TYPE_TO_KEYWORD[element.type] ?? element.type;
+  if (element.raw.end === true && parent && parent.type === "InterfaceDefinition") {
+    keyword = "end";
+  } else if (
+    element.raw.actor === true &&
+    parent &&
+    parent.type === "UseCaseDefinition"
+  ) {
+    keyword = "actor";
+  }
+
+  // ----- Constraint usage assertion: `assert constraint <name> : <Type>;`.
+  if (element.type === "ConstraintUsage" && element.raw.asserted === true) {
+    keyword = `assert ${keyword}`;
+  }
 
   // Build the header: keyword + optional shortName + name
   let header = `${prefix}${keyword}`;
@@ -150,16 +552,76 @@ function serializeElement(
   }
 
   if (element.name !== null) {
-    const quotedName = isValidIdentifier(element.name)
-      ? element.name
-      : `'${element.name}'`;
-    header += ` ${quotedName}`;
+    header += ` ${quoteName(element.name)}`;
   }
 
-  // Find children (elements whose ownerId matches this element's id)
-  const children = [...elementById.values()].filter(
-    (e) => e.ownerId === element.id
-  );
+  // Typed usage: append `: 'TypeName'` (feature typing). Driven by
+  // raw.typeName, set by the presentation projection for usage elements.
+  const typeName = element.raw.typeName;
+  if (typeof typeName === "string" && typeName.length > 0) {
+    header += ` : ${quoteName(typeName)}`;
+  }
+
+  // Multiplicity: append `[mult]` AFTER the type (or after the name if no
+  // type). Grammar order is `<name> : <Type>[mult] :> <Super>`.
+  const multiplicity = element.raw.multiplicity;
+  if (typeof multiplicity === "string" && multiplicity.length > 0) {
+    header += `[${multiplicity}]`;
+  }
+
+  // Header-suffix relationships: specialization/subsetting (`:>`) and
+  // redefinition (`:>>`). Appended after the multiplicity. Subclassification /
+  // specialization (`:>`) come before redefinition (`:>>`) for readability;
+  // both orders parse, but a stable order keeps output deterministic.
+  const suffixes = ctx.headerSuffixById.get(element.id);
+  if (suffixes && suffixes.length > 0) {
+    const ordered = [...suffixes].sort((a, b) => {
+      const aRedef = a.startsWith(" :>>") ? 1 : 0;
+      const bRedef = b.startsWith(" :>>") ? 1 : 0;
+      return aRedef - bRedef;
+    });
+    header += ordered.join("");
+  }
+
+  // Attribute (or any usage) value: append ` = <value>`, e.g.
+  // `attribute capacity = 100;` / `attribute voltage : Real = 48.0;`.
+  const value = element.raw.value;
+  if (value !== undefined && value !== null) {
+    header += ` = ${String(value)}`;
+  }
+
+  // ----- Constraint definition with an expression body:
+  // `constraint def C { <expression> }`. Emitted as a single-line body.
+  if (
+    element.type === "ConstraintDefinition" &&
+    typeof element.raw.expression === "string" &&
+    element.raw.expression.length > 0
+  ) {
+    const provSrc = element.raw.provenanceSourceId;
+    const provSuffix =
+      typeof provSrc === "string" && provSrc.length > 0
+        ? `  // @source: ${provSrc}`
+        : "";
+    lines.push(`${header} {${provSuffix}`);
+    lines.push(`${"  ".repeat(depth + 1)}${element.raw.expression}`);
+    lines.push(`${prefix}}`);
+    return;
+  }
+
+  // Children (elements whose ownerId matches this element's id), with
+  // connection-like elements already excluded — precomputed in childrenByOwner.
+  const children = ctx.childrenByOwner.get(element.id) ?? [];
+
+  // A VerificationCaseDefinition with verify edges emits a nested objective
+  // body: `verification def V { objective { verify <reqUsage>; } }`.
+  const verifyTargets =
+    element.type === "VerificationCaseDefinition"
+      ? ctx.verifyByCase.get(element.id) ?? []
+      : [];
+
+  // Nested statements (connect/first-then/flow/transition/bind) whose common
+  // owner is THIS element, emitted after the child elements inside the body.
+  const nestedStmts = ctx.nestedByOwner.get(element.id) ?? [];
 
   // Append provenance comment if the element carries a source id
   const provenanceSourceId = element.raw.provenanceSourceId;
@@ -168,10 +630,29 @@ function serializeElement(
       ? `  // @source: ${provenanceSourceId}`
       : "";
 
-  if (children.length > 0) {
+  if (
+    children.length > 0 ||
+    verifyTargets.length > 0 ||
+    nestedStmts.length > 0
+  ) {
     lines.push(`${header} {${provenanceSuffix}`);
     for (const child of children) {
-      serializeElement(child, elementById, depth + 1, lines);
+      serializeElement(child, element, depth + 1, ctx);
+    }
+    if (verifyTargets.length > 0) {
+      const inner = "  ".repeat(depth + 1);
+      const inner2 = "  ".repeat(depth + 2);
+      lines.push(`${inner}objective {`);
+      for (const reqName of verifyTargets) {
+        lines.push(`${inner2}verify ${reqName};`);
+      }
+      lines.push(`${inner}}`);
+    }
+    if (nestedStmts.length > 0) {
+      const inner = "  ".repeat(depth + 1);
+      for (const stmt of nestedStmts) {
+        lines.push(`${inner}${stmt}`);
+      }
     }
     lines.push(`${prefix}}`);
   } else {
@@ -183,6 +664,12 @@ function isValidIdentifier(name: string): boolean {
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name);
 }
 
+/** Render a name as a SysML reference token: bare when it is a valid
+ *  identifier, otherwise single-quoted (`'Some Name'`). */
+function quoteName(name: string): string {
+  return isValidIdentifier(name) ? name : `'${name}'`;
+}
+
 function refName(
   id: string | undefined,
   elementById: Map<string, SysmlElement>
@@ -191,7 +678,138 @@ function refName(
   const element = elementById.get(id);
   if (!element) return null;
   if (element.name === null) return null;
-  return isValidIdentifier(element.name)
-    ? element.name
-    : `'${element.name}'`;
+  return quoteName(element.name);
+}
+
+// ---------------------------------------------------------------------------
+// Nested-statement endpoint resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Given a raw endpoint reference (an element id, an element name, or a
+ * one-level-qualified `parent.child` string), return the element id if it can
+ * be matched, otherwise the raw value as a literal name.
+ */
+function resolveEndpointId(
+  endpoint: unknown,
+  elementIds: Set<string>,
+  idByName: Map<string, string>
+): string | undefined {
+  if (typeof endpoint !== "string" || endpoint.length === 0) return undefined;
+  if (elementIds.has(endpoint)) return endpoint;
+  // Resolve by name (O(1) lookup); otherwise keep the literal (may already be a
+  // qualified ref like `battery.dcOut`).
+  return idByName.get(endpoint) ?? endpoint;
+}
+
+/**
+ * Resolve a reference name for an endpoint id:
+ *   - direct child of the common owner → simple name
+ *   - a port/feature owned by a child of the owner → `<childName>.<portName>`
+ * If the id is not a known element, the id/string is returned verbatim (it may
+ * already be a literal name or a qualified ref).
+ */
+function endpointRefName(
+  endpointId: string | undefined,
+  ownerId: string | undefined,
+  elementById: Map<string, SysmlElement>
+): string | null {
+  if (endpointId === undefined) return null;
+  const e = elementById.get(endpointId);
+  if (!e) {
+    // Not a known element id — treat as a literal reference string.
+    return endpointId;
+  }
+  if (e.name === null) return null;
+  const simple = quoteName(e.name);
+
+  // Direct child of the common owner → simple name.
+  if (e.ownerId === ownerId || ownerId === undefined) return simple;
+
+  // Port/feature owned by a child of the owner → one-level qualified name.
+  const parent = e.ownerId ? elementById.get(e.ownerId) : undefined;
+  if (parent && parent.ownerId === ownerId && parent.name !== null) {
+    return `${quoteName(parent.name)}.${simple}`;
+  }
+
+  // Fallback: simple name.
+  return simple;
+}
+
+/**
+ * Determine the common owner id for two endpoints, then build the nested
+ * statement. Returns null if the statement cannot be resolved safely.
+ */
+function resolveNestedFromEndpoints(
+  kind: NestedKind,
+  srcId: string | undefined,
+  tgtId: string | undefined,
+  name: string | null,
+  explicitOwnerId: string | undefined,
+  elementById: Map<string, SysmlElement>,
+  elementIds: Set<string>,
+  payloadType?: string | null,
+  typeName?: string | null
+): NestedStmt | null {
+  if (srcId === undefined || tgtId === undefined) return null;
+
+  const ownerId =
+    explicitOwnerId ?? commonOwner(srcId, tgtId, elementById, elementIds);
+  if (ownerId === undefined) return null;
+
+  const srcRef = endpointRefName(srcId, ownerId, elementById);
+  const tgtRef = endpointRefName(tgtId, ownerId, elementById);
+  if (srcRef === null || tgtRef === null) return null;
+
+  return {
+    ownerId,
+    text: nestedStatement(kind, srcRef, tgtRef, name, payloadType, typeName),
+  };
+}
+
+/**
+ * Compute the common owner of two endpoints. The common owner is:
+ *   - the element that owns BOTH endpoints directly, OR
+ *   - (for ports/features on sub-parts) the element that owns both endpoints'
+ *     owners.
+ * Returns undefined if no common owner can be found within the element set.
+ */
+function commonOwner(
+  srcId: string,
+  tgtId: string,
+  elementById: Map<string, SysmlElement>,
+  elementIds: Set<string>
+): string | undefined {
+  const src = elementById.get(srcId);
+  const tgt = elementById.get(tgtId);
+  if (!src || !tgt) return undefined;
+
+  // Ancestor chains (owner ids), nearest-first.
+  const srcChain = ownerChain(src, elementById);
+  const tgtChain = ownerChain(tgt, elementById);
+  const tgtSet = new Set(tgtChain);
+  for (const a of srcChain) {
+    if (tgtSet.has(a) && elementIds.has(a)) return a;
+  }
+  return undefined;
+}
+
+/** Return the chain of owner ids for an element, nearest-first. */
+function ownerChain(
+  element: SysmlElement,
+  elementById: Map<string, SysmlElement>
+): string[] {
+  const chain: string[] = [];
+  let cur: SysmlElement | undefined = element;
+  // Walk up via ownerId.
+  while (cur && cur.ownerId) {
+    chain.push(cur.ownerId);
+    cur = elementById.get(cur.ownerId);
+  }
+  return chain;
+}
+
+function addNested(map: Map<string, string[]>, stmt: NestedStmt): void {
+  if (!map.has(stmt.ownerId)) map.set(stmt.ownerId, []);
+  map.get(stmt.ownerId)!.push(stmt.text);
 }
