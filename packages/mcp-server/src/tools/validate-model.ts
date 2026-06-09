@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SmapsClient } from "../smaps-client.js";
+import type { ModelStore } from "../store.js";
 
-export function registerValidateModel(server: McpServer, smaps: SmapsClient) {
+export function registerValidateModel(server: McpServer, smaps: ModelStore) {
   server.tool(
     "validate_model",
     "Run completeness and consistency checks — unsatisfied requirements, orphaned elements, missing connections",

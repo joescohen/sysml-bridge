@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SmapsClient } from "../smaps-client.js";
+import type { ModelStore } from "../store.js";
 
-export function registerCreateElement(server: McpServer, smaps: SmapsClient) {
+export function registerCreateElement(server: McpServer, smaps: ModelStore) {
   server.tool(
     "create_element",
     "Create a SysML v2 element via a SMAPS commit. Supports all SysML v2 types: PartDefinition, RequirementDefinition, ActionDefinition, etc.",

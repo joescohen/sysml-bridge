@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SmapsClient } from "../smaps-client.js";
+import type { ModelStore } from "../store.js";
 
-export function registerCreateRelationship(server: McpServer, smaps: SmapsClient) {
+export function registerCreateRelationship(server: McpServer, smaps: ModelStore) {
   server.tool(
     "create_relationship",
     "Create a relationship between SysML v2 elements (Dependency, Specialization, SatisfyRequirementUsage, etc.)",

@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SmapsClient } from "../smaps-client.js";
+import type { ModelStore } from "../store.js";
 
-export function registerGetProjectState(server: McpServer, smaps: SmapsClient) {
+export function registerGetProjectState(server: McpServer, smaps: ModelStore) {
   server.tool(
     "get_project_state",
     "Get a summary of the current model — element counts by type, project/branch/commit IDs",

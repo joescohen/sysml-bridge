@@ -1,6 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import * as path from "node:path";
+import { z } from "zod";
+
 import { SmapsClient } from "./smaps-client.js";
+import { FileStore } from "./file-store.js";
+import type { ModelStore } from "./store.js";
 import { registerCreateElement } from "./tools/create-element.js";
 import { registerQueryElements } from "./tools/query-elements.js";
 import { registerCreateRelationship } from "./tools/create-relationship.js";
@@ -9,20 +14,34 @@ import { registerValidateModel } from "./tools/validate-model.js";
 import { registerExportSysml } from "./tools/export-sysml.js";
 import { registerImportSysml } from "./tools/import-sysml.js";
 import { registerGetProjectState } from "./tools/get-project-state.js";
-import { z } from "zod";
 
+// ---------------------------------------------------------------------------
+// Backend selection
+//
+//   SYSML_BRIDGE_BACKEND=file   (default) → file-native .sysml/JSON store, no server
+//   SYSML_BRIDGE_BACKEND=smaps            → live SMAPS REST backend (Pilot / Cameo)
+//
+// Per RESEARCH.md the consensus is file-native, so it is the default. SMAPS
+// remains available behind the same ModelStore interface for the live-model /
+// Cameo-server path. The 8 tools below are backend-agnostic.
+// ---------------------------------------------------------------------------
+
+const BACKEND = (process.env.SYSML_BRIDGE_BACKEND ?? "file").toLowerCase();
 const SMAPS_ENDPOINT = process.env.SMAPS_ENDPOINT ?? "http://localhost:9000";
+const MODEL_DIR =
+  process.env.SYSML_BRIDGE_MODEL_DIR ?? path.join(process.cwd(), ".sysml-bridge");
 
 const server = new McpServer({
   name: "sysml-bridge",
   version: "0.1.0",
 });
 
-const smaps = new SmapsClient(SMAPS_ENDPOINT);
+const store: ModelStore =
+  BACKEND === "smaps" ? new SmapsClient(SMAPS_ENDPOINT) : new FileStore(MODEL_DIR);
 
 server.tool(
   "init_project",
-  "Initialize or load a SMAPS project. Must be called before using other tools.",
+  "Initialize or load a project. Must be called before using other tools.",
   {
     name: z.string().describe("Project name to create or load"),
     create: z
@@ -34,7 +53,7 @@ server.tool(
   async ({ name, create }) => {
     try {
       if (create) {
-        const project = await smaps.createProject(name);
+        const project = await store.createProject(name);
         return {
           content: [
             {
@@ -42,8 +61,9 @@ server.tool(
               text: JSON.stringify(
                 {
                   status: "created",
+                  backend: BACKEND,
                   projectId: project["@id"],
-                  branchId: smaps.branchId,
+                  branchId: store.branchId,
                 },
                 null,
                 2
@@ -53,7 +73,7 @@ server.tool(
         };
       }
 
-      const projects = await smaps.listProjects();
+      const projects = await store.listProjects();
       const found = projects.find((p) => p.name === name);
       if (!found) {
         return {
@@ -62,7 +82,7 @@ server.tool(
         };
       }
 
-      const project = await smaps.loadProject(found["@id"]);
+      const project = await store.loadProject(found["@id"]);
       return {
         content: [
           {
@@ -70,9 +90,10 @@ server.tool(
             text: JSON.stringify(
               {
                 status: "loaded",
+                backend: BACKEND,
                 projectId: project["@id"],
-                branchId: smaps.branchId,
-                headCommitId: smaps.headCommitId,
+                branchId: store.branchId,
+                headCommitId: store.headCommitId,
               },
               null,
               2
@@ -89,14 +110,14 @@ server.tool(
   }
 );
 
-registerCreateElement(server, smaps);
-registerQueryElements(server, smaps);
-registerCreateRelationship(server, smaps);
-registerQueryRelationships(server, smaps);
-registerValidateModel(server, smaps);
-registerExportSysml(server, smaps);
-registerImportSysml(server, smaps);
-registerGetProjectState(server, smaps);
+registerCreateElement(server, store);
+registerQueryElements(server, store);
+registerCreateRelationship(server, store);
+registerQueryRelationships(server, store);
+registerValidateModel(server, store);
+registerExportSysml(server, store);
+registerImportSysml(server, store);
+registerGetProjectState(server, store);
 
 async function main() {
   const transport = new StdioServerTransport();

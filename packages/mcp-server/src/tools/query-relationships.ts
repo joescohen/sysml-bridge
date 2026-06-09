@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SmapsClient } from "../smaps-client.js";
+import type { ModelStore } from "../store.js";
 
-export function registerQueryRelationships(server: McpServer, smaps: SmapsClient) {
+export function registerQueryRelationships(server: McpServer, smaps: ModelStore) {
   server.tool(
     "query_relationships",
     "Get relationships for an element. Uses the SMAPS relationships endpoint with direction filtering.",
