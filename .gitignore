@@ -10,6 +10,14 @@ coverage/
 topology.json
 examples/**/.mbse-session.json
 
+# ANGARS corpus — proprietary academic capstone + 3rd-party docs; NEVER publish.
+# Raw input corpus and the human-built reference model stay local-only.
+examples/angars/corpus/
+examples/angars/reference-model/
+
+# Internal planning/research artifacts (not for public repo)
+.planning/
+
 # Internal dev artifacts
 docs/superpowers/
 docs/REVIEW.md
