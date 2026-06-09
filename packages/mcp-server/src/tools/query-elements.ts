@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SmapsClient } from "../smaps-client.js";
+import type { ModelStore } from "../store.js";
 
-export function registerQueryElements(server: McpServer, smaps: SmapsClient) {
+export function registerQueryElements(server: McpServer, smaps: ModelStore) {
   server.tool(
     "query_elements",
     "Find SysML v2 elements by type and/or name pattern. Uses the SMAPS Query API.",

@@ -1,9 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SmapsClient } from "../smaps-client.js";
+import type { ModelStore } from "../store.js";
 import { parseSysml } from "../utils/sysml-parser.js";
 
-export function registerImportSysml(server: McpServer, smaps: SmapsClient) {
+export function registerImportSysml(server: McpServer, smaps: ModelStore) {
   server.tool(
     "import_sysml",
     "Parse SysML v2 textual notation and import elements into the model via commits",

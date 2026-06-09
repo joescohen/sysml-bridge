@@ -1,153 +1,464 @@
 ---
 name: mbse-build
-description: Build SysML v2 artifacts from requirements — BDD, IBD, activity, sequence, state, parametric
+description: Build SysML v2 structural and behavioral artifacts — BDD, IBD, and F1 activity — from cc-extracted.json using file-native MCP tools only.
 ---
 
 # MBSE Build
 
-The construction layer. Build specific SysML v2 model artifacts from requirements via subcommands.
+The construction layer. Build SysML v2 model artifacts from the
+`examples/angars/model/cc-extracted.json` data using the file-native MCP
+tools. This skill covers three artifacts in the first cut: BDD, IBD, and F1
+activity. The sequence diagram is deferred to Phase 2 and is explicitly out
+of scope here.
 
-## Subcommands
+## Data Source
 
-### `mbse-build bdd`
-Build Block Definition Diagram — part definitions, generalizations, compositions.
+Read `examples/angars/model/cc-extracted.json` before issuing any tool calls.
+Relevant arrays:
 
-1. Query requirements to understand what blocks are needed.
-2. Create the root PartDefinition: `create_element("PartDefinition", systemName, packageId)`.
-3. Create each subsystem as a PartUsage owned by the root:
-   `create_element("PartUsage", subsystemName, rootPartDefId)`.
-4. For each PartUsage that represents an independent subsystem, type it with
-   `create_relationship("FeatureTyping", partUsageId, partDefId)` so the model is SysML v2 valid.
-5. For specialization (block hierarchy), use
-   `create_relationship("Subclassification", childPartDefId, parentPartDefId)`.
-6. Use `create_relationship("SatisfyRequirementUsage", partDefId, reqId)` to link blocks to requirements.
+- `subsystem` — `"Command & Control"` (the root PartDefinition name)
+- `components[]` — 6 entries: `{ name }` each
+- `functions[]` — F1 and F1.x entries (and F8/F8.x for future phases)
+- `satisfies[]` — `{ reqId, functionId }` pairs
 
-**Never** call `create_bdd_structure` — it does not exist in the MCP server.
+All elements created by this skill must carry `provenanceSourceId` in their
+`attributes`. See the **Provenance Mechanism** section below.
 
-### `mbse-build ibd`
-Build Internal Block Diagram — ports, connections, flows.
+## Provenance Mechanism
 
-**Mandatory sequence for SysML v2 validity:**
+`create_element(type, name, attributes)` spreads all keys from `attributes`
+directly into `element.raw`. Passing
+`{ provenanceSourceId: "<source-id>" }` in `attributes` causes
+`element.raw.provenanceSourceId` to equal that string. This is the ONLY
+supported mechanism — no wrapper, no nesting, no intermediary. The exact
+attribute key is `provenanceSourceId` (camelCase, string value).
 
-1. **Find or create ports** — `create_element("PortUsage", portName, partUsageId)` for each
-   interface port on each PartUsage that participates in connections.
-2. **Create connections** — `create_relationship("ConnectionUsage", sourcePortId, targetPortId)`
-   for each port-to-port interface. This is the available MCP path for port-to-port connections.
-   If `create_relationship` cannot wire the endpoints correctly, use `import_sysml` with textual
-   SysML v2 connection syntax: `connection <name> connect <partA>::<portA> to <partB>::<portB>;`
-   — SysON parses this natively and wires `ReferenceSubsetting` to the referenced ports.
-   If either path fails, invoke the **Fallback-Path Protocol** before continuing.
-3. **Validate** — `validate_model()` must show no broken connector references and no orphaned
-   ports before the IBD is considered complete.
-4. **Update topology** — call `GET /api/projects/:id/elements` to resolve port `@id` values,
-   then confirm the server's `/api/projects/:id/connections` endpoint returns the new edges.
-   If connections are not surfaced by the server endpoint, invoke the Fallback-Path Protocol.
+`validate_model` flags any `PartDefinition` or `ActionDefinition` missing a
+non-empty `raw.provenanceSourceId`.
 
-### `mbse-build activity`
-Build activity/action diagrams — action definitions, control and data flows.
-
-1. Query use cases and operational scenarios.
-2. `create_element("Action Definition", name, packageId)` for each step.
-3. `create_element("Action", name, actionDefId)` for usages.
-4. `create_relationship(SuccessionUsage, actionA_id, actionB_id)` for control flow ordering.
-5. `create_relationship(FlowConnectionUsage, outPort_id, inPort_id)` for data flows.
-
-### `mbse-build state`
-Build state machine diagrams — state definitions, transitions.
-
-1. Query blocks that have behavioral modes.
-2. `create_element("State Definition", name, packageId)` and
-   `create_element("State", name, stateDefId)` for each state.
-3. `create_relationship(TransitionUsage, fromStateId, toStateId)` for transitions.
-4. Use `export_sysml` to emit the state machine text; SysON renders state views from the model. Do NOT call `create_diagram` — it does not exist in the MCP server.
-
-### `mbse-build parametric`
-Build parametric/constraint diagrams — constraint definitions, analysis bindings.
-
-1. Query KPPs and quantitative requirements.
-2. `create_element("Constraint Definition", name, packageId)` for analysis equations.
-3. `create_element("Attribute", name, constraintDefId)` for parameters.
-4. `create_relationship(BindingConnector, paramId, attributeId)` to bind parameters to block attributes.
-
-### SysML v2 Keyword Reference
-
-| Subcommand  | SysML v2 Keywords                                      |
-|-------------|--------------------------------------------------------|
-| bdd         | `part def`, `part : Type`, `:>` specialization        |
-| ibd         | `port`, `connection connect X to Y`, `flow from X to Y` |
-| activity    | `action def`, `action`, `first ... then`, `flow`      |
-| state       | `state def`, `state`, `transition then`               |
-| parametric  | `constraint def`, `constraint`, `attribute`, `bind`   |
+`export_sysml` emits `// @source: <provenanceSourceId>` as a trailing comment
+on each declaration line when the field is present.
 
 ## Common Workflow
 
-1. **Read session state** — call `get_project_state` to understand what exists.
-2. **Verify tool surface** — before executing any subcommand, confirm you are only calling tools
-   from the verified list in `## Tools Used` below. If a subcommand step references a tool not
-   in that list, do NOT attempt the call — invoke the **Fallback-Path Protocol** instead.
-3. **Query existing elements** — `query_elements` to find requirements and blocks.
-4. **Present plan** — show what will be created, ask for approval. Include any tool gaps
-   identified in step 2 and their fallback paths.
-5. **Create elements** — via `create_element` calls.
-6. **Create relationships/connections** — use `create_relationship` for all typed relationships
-   including port connections; use `import_sysml` for textual connection syntax if needed.
-7. **Validate** — `validate_model` to confirm SysML v2 validity before moving on.
-8. **Export** — `export_sysml` to generate SysML v2 textual notation for review.
+1. **Read session state** — `get_project_state` to understand what exists.
+2. **Query existing elements** — `query_elements` to find requirements and any
+   previously created parts or actions.
+3. **Present plan** — show what will be created, ask for approval.
+4. **Create elements** — `create_element` calls, each with `provenanceSourceId`.
+5. **Create relationships** — `create_relationship` for all typed edges.
+6. **Validate** — `validate_model` before declaring the artifact complete.
+7. **Export** — `export_sysml` to emit SysML v2 textual notation for review.
+
+---
+
+## Subcommand: `mbse-build bdd`
+
+Build Block Definition Diagram — the Command & Control Subsystem PartDefinition
+and its 6 component PartDefinitions, wired with FeatureMembership containment.
+
+### Sequence
+
+**1. Create the subsystem root PartDefinition:**
+
+```
+create_element(
+  type: "PartDefinition",
+  name: "Command & Control Subsystem",
+  attributes: {
+    provenanceSourceId: "Command & Control"
+  }
+)
+```
+
+Capture the returned `id` as `<subsystemId>`.
+
+**2. Create each component PartDefinition** (6 entries from `components[]`):
+
+```
+create_element(
+  type: "PartDefinition",
+  name: "C&C Power Module",
+  attributes: { provenanceSourceId: "component:C&C Power Module" }
+)
+
+create_element(
+  type: "PartDefinition",
+  name: "Operator Control Plane",
+  attributes: { provenanceSourceId: "component:Operator Control Plane" }
+)
+
+create_element(
+  type: "PartDefinition",
+  name: "Operator Console Module",
+  attributes: { provenanceSourceId: "component:Operator Console Module" }
+)
+
+create_element(
+  type: "PartDefinition",
+  name: "HMI Panel & Displays",
+  attributes: { provenanceSourceId: "component:HMI Panel & Displays" }
+)
+
+create_element(
+  type: "PartDefinition",
+  name: "Haptic Alert Unit",
+  attributes: { provenanceSourceId: "component:Haptic Alert Unit" }
+)
+
+create_element(
+  type: "PartDefinition",
+  name: "Flight Control Module",
+  attributes: { provenanceSourceId: "component:Flight Control Module" }
+)
+```
+
+Capture each returned `id` as `<componentId_*>`.
+
+**3. Wire containment with FeatureMembership:**
+
+For each component, create a FeatureMembership from the subsystem root to the
+component PartDefinition:
+
+```
+create_relationship(
+  type: "FeatureMembership",
+  source_id: <subsystemId>,
+  target_id: <componentId_*>
+)
+```
+
+Repeat for all 6 components.
+
+**4. Wire satisfy edges to requirements** (query requirements first):
+
+```
+query_elements(type_filter: "RequirementDefinition")
+```
+
+For each `(reqId, functionId)` pair in `satisfies[]` where a component
+PartDefinition can be the satisfier, create:
+
+```
+create_relationship(
+  type: "SatisfyRequirementUsage",
+  source_id: <componentId>,
+  target_id: <requirementId>
+)
+```
+
+**5. Validate:**
+
+```
+validate_model()
+```
+
+Confirm `provenanceCoverage: 100` for PartDefinitions and no dangling edges.
+
+---
+
+## Subcommand: `mbse-build ibd`
+
+Build Internal Block Diagram — PartUsages, PortUsages, and interior
+ConnectionUsages for the C&C Subsystem, including boundary ports for the
+6 external interfaces.
+
+### External interfaces (boundary ports)
+
+The C&C Subsystem has the following external interfaces that require boundary
+PortUsages on the subsystem root PartDefinition:
+
+- `AGNS_Interface` (AGNS link)
+- `FuelTransfer_Interface` (Fuel Transfer link)
+- `Comms_Interface` (Communications link)
+- `Processing_Interface` (Processing link)
+- `Power_Interface` (Power bus)
+- `ExternalOperator_Interface` (External operator link)
+
+### Sequence
+
+**1. Create PartUsages** for each component, owned by the subsystem root:
+
+```
+create_element(
+  type: "PartUsage",
+  name: "ccPowerModule",
+  attributes: {
+    provenanceSourceId: "component:C&C Power Module",
+    owner: "<subsystemId>"
+  }
+)
+```
+
+Repeat for all 6 components. Use camelCase short names as usage names.
+Capture each returned `id` as `<partUsageId_*>`.
+
+**2. Create boundary PortUsages** on the subsystem root:
+
+```
+create_element(
+  type: "PortUsage",
+  name: "AGNS_Interface",
+  attributes: {
+    provenanceSourceId: "external:AGNS",
+    owner: "<subsystemId>"
+  }
+)
+```
+
+Repeat for the remaining 5 external interfaces listed above.
+Capture each returned `id` as `<boundaryPortId_*>`.
+
+**3. Create internal PortUsages** on component PartUsages that participate
+in internal flows (add as needed based on the interface topology):
+
+```
+create_element(
+  type: "PortUsage",
+  name: "<portName>",
+  attributes: {
+    provenanceSourceId: "internal-port:<componentName>:<portName>",
+    owner: "<partUsageId>"
+  }
+)
+```
+
+**4. Create interior ConnectionUsages** between component ports:
+
+```
+create_element(
+  type: "ConnectionUsage",
+  name: "<connectionName>",
+  attributes: {
+    provenanceSourceId: "connection:<srcComponent>-<tgtComponent>",
+    owner: "<subsystemId>"
+  }
+)
+```
+
+Then wire the endpoints using FeatureMembership or by adding source/target
+attributes. If the connection endpoints cannot be wired through
+`create_element` attributes alone, use `import_sysml` with textual SysML v2
+connection syntax:
+
+```
+connection <name> connect <partA>::<portA> to <partB>::<portB>;
+```
+
+If either path fails, invoke the **Fallback-Path Protocol** before continuing.
+
+**5. Validate:**
+
+```
+validate_model()
+```
+
+Confirm: no orphaned ports, no dangling connector references, and
+`provenanceCoverage: 100` for all PartUsage and PortUsage elements.
+
+---
+
+## Subcommand: `mbse-build activity` (F1 ONLY — first cut)
+
+Build ActionDefinitions for the F1 "Manage Refueling Requests" function and
+its 6 child behaviors (F1.1–F1.6). Control flow is modeled with
+SuccessionUsage edges. **F8 and the sequence diagram are out of scope for
+this first cut (Phase 2).**
+
+### F1 tree from `functions[]`
+
+```
+F1   Manage Refueling Requests        (L2)
+F1.1 Receive & Authenticate Request   (L3, owner: F1)
+F1.2 Validate Fuel Capacity           (L3, owner: F1)
+F1.3 Prioritize Requests              (L3, owner: F1)
+F1.4 Generate Schedule                (L3, owner: F1)
+F1.5 Update Schedule Dynamically      (L3, owner: F1)
+F1.6 Transmit Status & Reports        (L3, owner: F1)
+```
+
+### Sequence
+
+**1. Create F1 root ActionDefinition:**
+
+```
+create_element(
+  type: "ActionDefinition",
+  name: "Manage Refueling Requests",
+  attributes: { provenanceSourceId: "F1" }
+)
+```
+
+Capture returned `id` as `<f1Id>`.
+
+**2. Create child ActionDefinitions** for F1.1–F1.6, owned by F1:
+
+```
+create_element(
+  type: "ActionDefinition",
+  name: "Receive & Authenticate Request",
+  attributes: {
+    provenanceSourceId: "F1.1",
+    owner: "<f1Id>"
+  }
+)
+
+create_element(
+  type: "ActionDefinition",
+  name: "Validate Fuel Capacity",
+  attributes: {
+    provenanceSourceId: "F1.2",
+    owner: "<f1Id>"
+  }
+)
+
+create_element(
+  type: "ActionDefinition",
+  name: "Prioritize Requests",
+  attributes: {
+    provenanceSourceId: "F1.3",
+    owner: "<f1Id>"
+  }
+)
+
+create_element(
+  type: "ActionDefinition",
+  name: "Generate Schedule",
+  attributes: {
+    provenanceSourceId: "F1.4",
+    owner: "<f1Id>"
+  }
+)
+
+create_element(
+  type: "ActionDefinition",
+  name: "Update Schedule Dynamically",
+  attributes: {
+    provenanceSourceId: "F1.5",
+    owner: "<f1Id>"
+  }
+)
+
+create_element(
+  type: "ActionDefinition",
+  name: "Transmit Status & Reports",
+  attributes: {
+    provenanceSourceId: "F1.6",
+    owner: "<f1Id>"
+  }
+)
+```
+
+Capture each returned `id` as `<f1_1Id>` through `<f1_6Id>`.
+
+**3. Wire control flow with SuccessionUsage edges:**
+
+```
+create_relationship(
+  type: "FeatureMembership",
+  source_id: <f1Id>,
+  target_id: <f1_1Id>
+)
+```
+
+Then create SuccessionUsage (sequential control flow F1.1 → F1.2 → ... → F1.6):
+
+```
+create_relationship(
+  type: "Connector",
+  source_id: <f1_1Id>,
+  target_id: <f1_2Id>
+)
+```
+
+Repeat for F1.2→F1.3, F1.3→F1.4, F1.4→F1.5, F1.5→F1.6.
+
+**4. Wire SatisfyRequirementUsage edges** from functions to requirements
+using the `satisfies[]` array. For each `{ reqId, functionId }` pair where
+`functionId` starts with `F1`:
+
+```
+create_relationship(
+  type: "SatisfyRequirementUsage",
+  source_id: <actionDefinitionId_for_functionId>,
+  target_id: <requirementId_for_reqId>
+)
+```
+
+Query requirements first:
+```
+query_elements(type_filter: "RequirementDefinition")
+```
+
+**5. Validate:**
+
+```
+validate_model()
+```
+
+Confirm: ActionDefinitions have `provenanceCoverage: 100`, all F1.x functions
+are forward-traced via SatisfyRequirementUsage, no orphan design elements.
+
+---
 
 ## Fallback-Path Protocol
 
-Whenever a step in any subcommand cannot be completed using the verified MCP tools below,
-the pipeline MUST do the following before continuing:
+Whenever a step cannot be completed using the verified MCP tools below, the
+pipeline MUST do the following before continuing:
 
 1. **Stop and surface the gap** — tell the user:
-   - Which operation could not be performed through chat.
+   - Which operation could not be performed.
    - What was done instead (if anything), described precisely.
    - Whether any files or external state were modified outside the MCP tool surface.
 
-2. **Emit a reproducible procedure** — provide the user with explicit, step-by-step
-   instructions they can follow to reproduce the same operation through chat or a documented
-   manual process. The procedure must require no knowledge the user hasn't been given in this
-   session, reference only tools or interfaces the user has access to, and be stated in
-   imperative steps, not descriptions.
+2. **Emit a reproducible procedure** — provide explicit, step-by-step
+   instructions the user can follow. Reference only tools or interfaces the
+   user has access to, in imperative steps, not descriptions.
 
-3. **Document in export** — when `export_sysml` is called, the exported artifact must include
-   a comment block listing every operation performed outside the MCP tool surface and the
-   reproducible procedure for each.
+3. **Document in export** — when `export_sysml` is called, include a comment
+   block listing every operation performed outside the MCP tool surface and
+   the reproducible procedure for each.
 
-4. **Do not complete the step silently** — a step that required a workaround is NOT done until
-   the fallback procedure has been surfaced and the user has acknowledged it.
+4. **Do not complete the step silently** — a step that required a workaround
+   is NOT done until the fallback procedure has been surfaced and the user has
+   acknowledged it.
 
-**Operations that always trigger this protocol:**
-- Any file edited directly (e.g., topology.json, config files, seed data).
+Operations that always trigger this protocol:
+- Any file edited directly (topology.json, config files, seed data).
 - Any GraphQL or REST mutation issued outside the MCP server.
-- Any element ID or value looked up manually and hard-coded into a file or response.
-- Any SysON view or diagram created through the SysON UI rather than through tool calls.
+- Any element ID or value looked up manually and hard-coded into a response.
+
+---
 
 ## Tools Used
 
-This project has two MCP servers. Check which one is active before calling tools.
+This skill uses the **file-native stdio MCP server** (`packages/mcp-server`).
+There is no live SysON or SMAPS dependency.
 
-### stdio MCP server (`packages/mcp-server`) — connects to SMAPS (port 9000)
-Available when Claude Code connects via the `sysml-bridge` stdio MCP:
+Available tools:
 - `init_project`
-- `query_elements`
 - `get_project_state`
-- `create_element`
-- `create_relationship`     ← FeatureTyping, SatisfyRequirementUsage, Subclassification, etc.
+- `query_elements`
 - `query_relationships`
+- `create_element`
+- `create_relationship`
 - `validate_model`
-- `import_sysml`            ← parses SysML v2 text and commits elements via SMAPS
+- `import_sysml`
 - `export_sysml`
 
-### HTTP MCP server (`dashboard/server.js`) — connects to SysON (port 8080)
-Available when working through the dashboard chat (port 6121):
-- All of the above, plus:
-- `create_connection`       ← creates ConnectionUsage in SysON + writes topology.json edge
-- `create_bdd_structure`    ← creates PartDefinition + PartUsages + SysON General View
-- `create_diagram`          ← creates a SysON diagram representation
-- `delete_element`, `update_element`, `create_project`
+**Never** call `create_bdd_structure`, `create_ibd_connection`,
+`create_diagram`, `create_connection`, `delete_element`, `update_element`,
+or `create_project`. These are HTTP-server-only tools and do NOT exist in the
+file-native MCP server.
 
-**Rule:** if the Batmobile or any SysON-backed project is the target, the HTTP server tools
-(`create_connection`, `create_bdd_structure`, `create_diagram`) are available. If working
-against SMAPS, use only the stdio server tools. When in doubt, call `get_project_state`
-first — if it returns elements, the current MCP connection is active for that project.
+---
+
+## Phase 2 deferred items
+
+The following are explicitly out of scope for this first cut and will be
+addressed in Phase 2:
+
+- F8 "Manage HMI" ActionDefinitions and its F8.1–F8.9 children
+- Sequence diagram (lifecycle / message-passing view)
+- AllocationUsage edges from functions to physical components
+- VerifyRequirementUsage edges to verification cases

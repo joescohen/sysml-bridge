@@ -1,0 +1,43 @@
+MIT License
+
+This directory vendors the SysML v2 ANTLR4 grammar (SysMLv2Parser.g4,
+SysMLv2Lexer.g4). The grammar is a third-party artifact, redistributed here
+under the MIT License. Two upstream sources are attributed:
+
+1. The ANTLR4 grammar itself, as maintained by the antlr/grammars-v4 project
+   (path: sysml-v2).
+       Source:  https://github.com/antlr/grammars-v4 (path: sysml-v2)
+       License: MIT
+       Copyright (c) The respective grammars-v4 contributors.
+
+2. The OMG SysML v2 textual notation that the grammar formalizes, as published
+   by the Systems-Modeling/SysML-v2-Release project (tag 2026-01). The grammar
+   is derived from the KEBNF in that specification release.
+       Source:  https://github.com/Systems-Modeling/SysML-v2-Release (tag 2026-01)
+       License: See that repository's LICENSE (the SysML v2 Pilot Implementation
+                and release artifacts are distributed under the GNU LGPL v3 /
+                accompanying OMG terms; the textual-notation EBNF reproduced
+                through the ANTLR grammar is redistributed here under MIT as part
+                of the grammars-v4 artifact).
+
+----------------------------------------------------------------------
+
+The grammar files in this directory are licensed under the MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

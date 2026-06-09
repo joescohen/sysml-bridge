@@ -12,6 +12,7 @@ import type {
   SysmlRelationship,
   ProjectState,
 } from "./types/sysml-elements.js";
+import type { ModelStore } from "./store.js";
 
 // ---------------------------------------------------------------------------
 // SmapsClient
@@ -22,7 +23,7 @@ import type {
 // PATCH or DELETE endpoints on elements.
 // ---------------------------------------------------------------------------
 
-export class SmapsClient {
+export class SmapsClient implements ModelStore {
   private endpoint: string;
 
   // Populated by createProject / loadProject

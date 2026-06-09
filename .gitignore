@@ -10,6 +10,17 @@ coverage/
 topology.json
 examples/**/.mbse-session.json
 
+# ANGARS corpus — proprietary academic capstone + 3rd-party docs; NEVER publish.
+# Raw input corpus and the human-built reference model stay local-only.
+examples/angars/corpus/
+examples/angars/reference-model/
+# ANGARS extracted model artifacts + audit reports — generated, corpus-derived; local-only.
+examples/angars/model/
+examples/angars/audits/
+
+# Internal planning/research artifacts (not for public repo)
+.planning/
+
 # Internal dev artifacts
 docs/superpowers/
 docs/REVIEW.md
@@ -21,3 +32,26 @@ dashboard/.claude/
 
 # Redundant lockfile (project uses pnpm)
 dashboard/package-lock.json
+
+# Python virtualenvs (local-only; recreate via tools/sysml-validator/requirements.txt)
+.venv/
+.venv-syside/
+
+# Stray tsc outputs under scripts/ (the .ts sources are tracked; their JS/d.ts are not)
+scripts/*.js
+scripts/*.d.ts
+scripts/*.d.ts.map
+scripts/*.js.map
+
+# Python bytecode caches (regenerated on every run)
+__pycache__/
+*.pyc
+
+# The committed SysML validator parser MUST be tracked (negate any broad ignore above).
+!tools/sysml-validator/generated/
+!tools/sysml-validator/generated/**
+# ...but never commit the bytecode cache that running it produces.
+tools/sysml-validator/generated/__pycache__/
+
+# MCP file-store runtime data (per-project; not source)
+.sysml-bridge/

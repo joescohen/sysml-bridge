@@ -226,6 +226,122 @@ describe("parseSysml — relationships", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 8b. Parses new nested-statement relationships (round-trip recognition)
+// ---------------------------------------------------------------------------
+
+describe("parseSysml — extended relationships", () => {
+  it("recognizes `connect a to b;` as a connect relationship", () => {
+    const result = parseSysml("connect a to b;");
+    expect(result.errors).toHaveLength(0);
+    expect(result.relationships).toHaveLength(1);
+    expect(result.relationships[0].type).toBe("connect");
+    expect(result.relationships[0].from).toBe("a");
+    expect(result.relationships[0].to).toBe("b");
+  });
+
+  it("recognizes a qualified `connect battery.dcOut to inverter.dcIn;`", () => {
+    const result = parseSysml("connect battery.dcOut to inverter.dcIn;");
+    expect(result.relationships[0].type).toBe("connect");
+    expect(result.relationships[0].from).toBe("battery.dcOut");
+    expect(result.relationships[0].to).toBe("inverter.dcIn");
+  });
+
+  it("recognizes `connection L connect a to b;` with a name", () => {
+    const result = parseSysml("connection L connect a to b;");
+    expect(result.relationships[0].type).toBe("connect");
+    expect(result.relationships[0].name).toBe("L");
+    expect(result.relationships[0].from).toBe("a");
+    expect(result.relationships[0].to).toBe("b");
+  });
+
+  it("recognizes `bind a = b;` as a bind relationship", () => {
+    const result = parseSysml("bind a = b;");
+    expect(result.relationships[0].type).toBe("bind");
+    expect(result.relationships[0].from).toBe("a");
+    expect(result.relationships[0].to).toBe("b");
+  });
+
+  it("recognizes `first stepA then stepB;` as a succession", () => {
+    const result = parseSysml("first stepA then stepB;");
+    expect(result.relationships[0].type).toBe("succession");
+    expect(result.relationships[0].from).toBe("stepA");
+    expect(result.relationships[0].to).toBe("stepB");
+  });
+
+  it("recognizes `flow from a to b;` as a flow", () => {
+    const result = parseSysml("flow from a to b;");
+    expect(result.relationships[0].type).toBe("flow");
+    expect(result.relationships[0].from).toBe("a");
+    expect(result.relationships[0].to).toBe("b");
+  });
+
+  it("recognizes `transition first s1 then s2;` as a transition", () => {
+    const result = parseSysml("transition first s1 then s2;");
+    expect(result.relationships[0].type).toBe("transition");
+    expect(result.relationships[0].from).toBe("s1");
+    expect(result.relationships[0].to).toBe("s2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8c. Parses redefinition (`:>>`) and multiplicity (`[n]`) on elements
+// ---------------------------------------------------------------------------
+
+describe("parseSysml — redefinition + multiplicity", () => {
+  it("captures `:>> base` as redefines", () => {
+    const result = parseSysml("part y :>> x;");
+    expect(result.elements[0].type).toBe("PartUsage");
+    expect(result.elements[0].name).toBe("y");
+    expect(result.elements[0].redefines).toBe("x");
+  });
+
+  it("captures `[4]` multiplicity after a type", () => {
+    const result = parseSysml("part wheels : Wheel[4];");
+    expect(result.elements[0].name).toBe("wheels");
+    expect(result.elements[0].typedBy).toBe("Wheel");
+    expect(result.elements[0].multiplicity).toBe("4");
+  });
+
+  it("captures `[1..*]` multiplicity after a name (no type)", () => {
+    const result = parseSysml("part wheels[1..*];");
+    expect(result.elements[0].name).toBe("wheels");
+    expect(result.elements[0].multiplicity).toBe("1..*");
+  });
+
+  it("does not confuse `:>>` redefinition with `:>` specialization", () => {
+    const result = parseSysml("part y :>> x;");
+    expect(result.elements[0].redefines).toBe("x");
+    expect(result.elements[0].specializes).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8d. Round-3: attribute values + no-error on actor/include
+// ---------------------------------------------------------------------------
+
+describe("parseSysml — attribute values + round-3 statements", () => {
+  it("captures an untyped attribute value into attributes.value", () => {
+    const result = parseSysml("attribute capacity = 100;");
+    expect(result.elements[0].type).toBe("AttributeUsage");
+    expect(result.elements[0].name).toBe("capacity");
+    expect(result.elements[0].attributes.value).toBe("100");
+  });
+
+  it("captures a typed attribute value (type + value coexist)", () => {
+    const result = parseSysml("attribute voltage : Real = 48.0;");
+    expect(result.elements[0].typedBy).toBe("Real");
+    expect(result.elements[0].attributes.value).toBe("48.0");
+  });
+
+  it("does not error on actor / include statements", () => {
+    const input = `actor operator : Pilot;
+include use case Authenticate;`;
+    const result = parseSysml(input);
+    expect(result.errors).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 9. Parses imports
 // ---------------------------------------------------------------------------
 

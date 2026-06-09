@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SmapsClient } from "../smaps-client.js";
+import type { ModelStore } from "../store.js";
+import { SYSML_RELATIONSHIP_TYPES } from "../types/sysml-elements.js";
 
-export function registerCreateRelationship(server: McpServer, smaps: SmapsClient) {
+export function registerCreateRelationship(server: McpServer, smaps: ModelStore) {
   server.tool(
     "create_relationship",
     "Create a relationship between SysML v2 elements (Dependency, Specialization, SatisfyRequirementUsage, etc.)",
@@ -15,6 +16,18 @@ export function registerCreateRelationship(server: McpServer, smaps: SmapsClient
       attributes: z.record(z.unknown()).optional().describe("Additional attributes"),
     },
     async ({ type, source_id, target_id, attributes }) => {
+      const allowed = SYSML_RELATIONSHIP_TYPES as readonly string[];
+      if (!allowed.includes(type)) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: unknown relationship type '${type}'. Allowed: ${SYSML_RELATIONSHIP_TYPES.join(", ")}`,
+            },
+          ],
+          isError: true,
+        };
+      }
       try {
         const element = await smaps.createElement(type, "", {
           source: [{ "@id": source_id }],
