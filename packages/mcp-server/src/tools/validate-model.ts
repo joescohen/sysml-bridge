@@ -65,15 +65,29 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
         const backwardPercent =
           totalReqs > 0 ? Math.round((backwardTracedIds.size / totalReqs) * 100) : 0;
 
-        // ── 4. Orphan design elements (PartDefinition, ActionDefinition with no inbound satisfy/derive) ──
-        const ORPHAN_INBOUND_TYPES = new Set(["SatisfyRequirementUsage", "DeriveRequirementUsage"]);
+        // ── 4. Orphan design elements (PartDefinition, ActionDefinition with no trace edge in either direction) ──
+        // A design element is an orphan only if it participates in NO traceability edge at all —
+        // i.e. it is neither source nor target of any SatisfyRequirementUsage, AllocationUsage,
+        // or DeriveRequirementUsage relationship.
+        //
+        // Polarity note:
+        //   SatisfyRequirementUsage: source = satisfier (function/part), target = requirement.
+        //     → A traced function/part is the SOURCE (outbound), so checking inbound-only misses it.
+        //   AllocationUsage: source = function, target = component.
+        //     → An allocated component is the TARGET (inbound allocation), ignored by prior check.
+        // We check "both" directions so that sourcing OR targeting a trace edge exempts the element.
+        const ORPHAN_TRACE_TYPES = new Set([
+          "SatisfyRequirementUsage",
+          "AllocationUsage",
+          "DeriveRequirementUsage",
+        ]);
         const designElements = [...parts, ...actions];
         const orphanElements: Array<{ id: string; name: string | null; type: string }> = [];
 
         for (const el of designElements) {
-          const rels = await smaps.queryRelationships(el.id, "in");
-          const hasInbound = rels.some((r) => ORPHAN_INBOUND_TYPES.has(r.type));
-          if (!hasInbound) {
+          const rels = await smaps.queryRelationships(el.id, "both");
+          const hasTraceEdge = rels.some((r) => ORPHAN_TRACE_TYPES.has(r.type));
+          if (!hasTraceEdge) {
             orphanElements.push({ id: el.id, name: el.name, type: el.type });
           }
         }
@@ -141,7 +155,7 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
 
         if (orphanElements.length > 0) {
           issues.push(
-            `${orphanElements.length} design elements have no inbound satisfy/derive edge (orphans): ${orphanElements.map((e) => e.name ?? e.id).join(", ")}`
+            `${orphanElements.length} design elements have no satisfy/allocate/derive edge in either direction (orphans): ${orphanElements.map((e) => e.name ?? e.id).join(", ")}`
           );
         }
 

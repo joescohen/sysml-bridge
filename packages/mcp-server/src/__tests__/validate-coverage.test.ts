@@ -8,14 +8,19 @@
  * Fixture:
  *   - Req A — SatisfyRequirementUsage (forward ✓), VerifyRequirementUsage (verify ✓), provenanceSourceId set
  *   - Req B — AllocationUsage only (forward ✓ via union), no verify, no provenanceSourceId
- *   - OrphanPart — PartDefinition with no inbound satisfy or derive edge
+ *   - PartA — SOURCE of SatisfyRequirementUsage (→ ReqA) and AllocationUsage (→ ReqB);
+ *             it is the satisfier/allocator, so it participates in trace edges → NOT an orphan
+ *   - TracedComponent — TARGET of an AllocationUsage (a function allocated to it) → NOT an orphan
+ *   - TracedFunction  — SOURCE of a SatisfyRequirementUsage (satisfies a req) → NOT an orphan
+ *   - OrphanPart — PartDefinition with ZERO trace edges (no satisfy, no allocate, no derive,
+ *                  in either direction) → IS an orphan
  *   - GhostRel — relationship whose targetId does not exist → dangling endpoint
  *
  * Assertions:
  *   forwardPercent === 100 (A via Satisfy, B via Allocation)
  *   verifyPercent  === 50  (A verified, B not)
  *   B appears in elementsMissingBackpointer
- *   OrphanPart appears in orphanElements
+ *   OrphanPart appears in orphanElements; PartA, TracedComponent, TracedFunction do NOT
  *   GhostRel appears in danglingRelationships
  */
 
@@ -113,7 +118,27 @@ describe("validate_model — traceability coverage + provenance + dangling", () 
       target: [{ "@id": reqB.id }],
     });
 
-    // ── OrphanPart: PartDefinition with no inbound satisfy or derive ──
+    // ── TracedComponent: PartDefinition that is the TARGET of an AllocationUsage ──
+    // A function is allocated TO this component → it participates as target of a trace edge.
+    // Correct behavior: NOT an orphan (it has an inbound AllocationUsage edge).
+    const tracedComponent = await store.createElement("PartDefinition", "TracedComponent", {
+      provenanceSourceId: "corpus-design-4.0",
+    });
+    const tracedFunction = await store.createElement("ActionDefinition", "TracedFunction", {
+      provenanceSourceId: "corpus-design-4.1",
+    });
+    // TracedFunction → (SatisfyRequirementUsage) → ReqA  (TracedFunction is SOURCE)
+    await store.createElement("SatisfyRequirementUsage", "", {
+      source: [{ "@id": tracedFunction.id }],
+      target: [{ "@id": reqA.id }],
+    });
+    // TracedFunction → (AllocationUsage) → TracedComponent  (TracedComponent is TARGET)
+    await store.createElement("AllocationUsage", "", {
+      source: [{ "@id": tracedFunction.id }],
+      target: [{ "@id": tracedComponent.id }],
+    });
+
+    // ── OrphanPart: PartDefinition with ZERO trace edges in either direction ──
     await store.createElement("PartDefinition", "OrphanPart", {
       provenanceSourceId: "corpus-design-5.0",
     });
@@ -166,16 +191,23 @@ describe("validate_model — traceability coverage + provenance + dangling", () 
     expect(missing.some((e) => e.name === "ReqA")).toBe(false);
   });
 
-  it("OrphanPart appears in orphanElements (no inbound satisfy/derive)", async () => {
+  it("OrphanPart appears in orphanElements (zero trace edges); traced elements do NOT", async () => {
     const result = await client.callTool({ name: "validate_model", arguments: {} });
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     const parsed = JSON.parse(text) as CoverageResult;
     const orphans = parsed.coverage.orphanElements;
+
+    // Negative case: element with zero trace edges is flagged as orphan
     expect(orphans.some((e) => e.name === "OrphanPart")).toBe(true);
-    // PartA has an outbound satisfy edge — but the check is INBOUND to PartA
-    // PartA is a source on satisfy/allocation edges, not a target, so it IS an orphan too
-    // (the spec §4 checks PartDefinition for inbound satisfy/derive pointing AT it)
-    // Both are orphan parts here; the key assertion is OrphanPart is included
+
+    // Positive controls: elements that participate in trace edges (as source OR target)
+    // must NOT appear in orphanElements.
+    // PartA is source of SatisfyRequirementUsage and AllocationUsage → not an orphan
+    expect(orphans.some((e) => e.name === "PartA")).toBe(false);
+    // TracedFunction is source of SatisfyRequirementUsage (satisfies a req) → not an orphan
+    expect(orphans.some((e) => e.name === "TracedFunction")).toBe(false);
+    // TracedComponent is target of AllocationUsage (a function is allocated to it) → not an orphan
+    expect(orphans.some((e) => e.name === "TracedComponent")).toBe(false);
   });
 
   it("danglingRelationships contains the ghost-target relationship", async () => {
