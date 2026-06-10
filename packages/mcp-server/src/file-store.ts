@@ -145,6 +145,10 @@ export class FileStore implements ModelStore {
     if (!el) throw new Error(`Element not found: ${elementId}`);
 
     el.raw = { ...el.raw, ...updates };
+    if (typeof updates.type === "string") {
+      el.type = updates.type;
+      el.raw["@type"] = updates.type; // keep raw["@type"] in sync with el.type
+    }
     if (typeof updates.name === "string") el.name = updates.name;
     if (typeof updates.shortName === "string") el.shortName = updates.shortName;
     if (typeof updates.qualifiedName === "string") {
