@@ -387,4 +387,88 @@ describe("MCP edit-tools coupling", () => {
     expect(after.length).toBe(before.length);
     expect(after.find((e) => e.id === el.id)).toBeDefined();
   });
+
+  // ── Test 10: Type-change round-trip (CR-01 regression guard) ──
+
+  it("10. update_element type-change: el.type and el.raw['@type'] updated in store after type update", async () => {
+    const el = await store.createElement("PartUsage", "TypedPart");
+
+    const result = await client.callTool({
+      name: "update_element",
+      arguments: {
+        element_id: el.id,
+        updates: { type: "ActionUsage" },
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+
+    // Round-trip: queryElements must reflect the new type
+    const elements = await store.queryElements();
+    const updated = elements.find((e) => e.id === el.id);
+    expect(updated?.type).toBe("ActionUsage");
+
+    // queryElements(type?) filter must surface the element under new type
+    const byNewType = await store.queryElements("ActionUsage");
+    expect(byNewType.some((e) => e.id === el.id)).toBe(true);
+
+    const byOldType = await store.queryElements("PartUsage");
+    expect(byOldType.some((e) => e.id === el.id)).toBe(false);
+  });
+
+  // ── Test 11: CR-02 — empty endpoints guard on relationship update ──
+
+  it("11. update_element empty-endpoints guard: clearing all endpoints on a relationship type → isError EDIT-empty-endpoints, store unchanged", async () => {
+    const src = await store.createElement("PartUsage", "Src");
+    const tgt = await store.createElement("PartUsage", "Tgt");
+    const rel = await store.createElement("SatisfyRequirementUsage", "", {
+      source: [{ "@id": src.id }],
+      target: [{ "@id": tgt.id }],
+    });
+
+    const beforeRels = await store.queryRelationships();
+
+    // Attempt to clear both endpoints simultaneously
+    const result = await client.callTool({
+      name: "update_element",
+      arguments: {
+        element_id: rel.id,
+        updates: { source: [], target: [] },
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    const parsed = parseText(result) as { rejected: boolean; findings: Array<{ ruleId: string }> };
+    expect(parsed.rejected).toBe(true);
+    expect(parsed.findings.some((f) => f.ruleId === "EDIT-empty-endpoints")).toBe(true);
+
+    // Store unchanged — relationship still has its original endpoints
+    const afterRels = await store.queryRelationships();
+    expect(afterRels.length).toBe(beforeRels.length);
+    const relAfter = afterRels.find((r) => r.id === rel.id);
+    expect(relAfter?.sourceIds).toContain(src.id);
+    expect(relAfter?.targetIds).toContain(tgt.id);
+  });
+
+  // ── Test 12: WR-01 — delete dangle check uses canonical id ──
+
+  it("12. delete_element dangle check uses canonical id (not caller alias)", async () => {
+    const src = await store.createElement("PartUsage", "SrcPart");
+    const tgt = await store.createElement("PartUsage", "TgtPart");
+    await store.createElement("SatisfyRequirementUsage", "", {
+      source: [{ "@id": src.id }],
+      target: [{ "@id": tgt.id }],
+    });
+
+    // Call with the canonical id — dangle guard must fire
+    const result = await client.callTool({
+      name: "delete_element",
+      arguments: { element_id: src.id },
+    });
+
+    expect(result.isError).toBe(true);
+    const parsed = parseText(result) as { rejected: boolean; findings: Array<{ ruleId: string }> };
+    expect(parsed.rejected).toBe(true);
+    expect(parsed.findings.some((f) => f.ruleId === "EDIT-delete-would-dangle")).toBe(true);
+  });
 });
