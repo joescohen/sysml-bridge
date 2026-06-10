@@ -1019,20 +1019,30 @@ async function main(): Promise<void> {
   // ─────────────────────────────────────────────────────────────────────────
   console.log("\n=== View-Spec Emission (e2e-views.json) ===");
 
+  // One activity view per L2 function (F1..F9), slugged by natural key.
+  const activitySpecs = l2Functions.map((fn) => ({
+    file_stem: `e2e-activity-${fn.naturalKey.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    context_name: fn.name,
+    kind: "action",
+    frame_label: "action",
+  }));
+
   const viewSpec = [
     { file_stem: "e2e-bdd", context_name: "ANGARS Structure", kind: "bdd", frame_label: "bdd" },
     { file_stem: "e2e-ibd-system", context_name: "ANGARS System", kind: "interconnection", frame_label: "interconnection" },
-    { file_stem: "e2e-activity-f1", context_name: l1ActionName, kind: "action", frame_label: "action" },
-    { file_stem: "e2e-requirements", context_name: "ANGARS Requirements", kind: "requirements", frame_label: "requirements" },
-    { file_stem: "e2e-traceability", context_name: "ANGARS Structure", kind: "traceability", frame_label: "traceability" },
+    ...activitySpecs,
     { file_stem: "e2e-general", context_name: "ANGARS System", kind: "general", frame_label: "general" },
-    // Note: no "state" entry — corpus carries no state-machine source data (mbse-build:
+    // No "requirements"/"traceability" graph views: at 182 requirements a flat
+    // graph renders ~69k px wide — unusable. The requirements TABLE
+    // (requirements-table.ts) and the Gate-1 coverage matrix are those views.
+    // No "state" entry — corpus carries no state-machine source data (mbse-build:
     // "state where corpus-supported"). Fabricating states violates no-fabrication rule.
   ];
 
   fs.writeFileSync(OUTPUT_VIEWS, JSON.stringify(viewSpec, null, 2), "utf8");
   console.log(`  Written: ${OUTPUT_VIEWS} (${viewSpec.length} entries)`);
   console.log(`  No 'state' entry: corpus carries no state-machine data — fabricating states is prohibited.`);
+  console.log(`  No requirements/traceability graph entries: replaced by the requirements table + coverage matrix.`);
 
   // ─────────────────────────────────────────────────────────────────────────
   // RUN REPORT

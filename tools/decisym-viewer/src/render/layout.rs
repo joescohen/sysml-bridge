@@ -25,6 +25,9 @@ pub struct Layout {
     /// Typed edges with end markers + labels (composition, specialization,
     /// satisfy/derive/verify) for BDD / requirements / traceability.
     pub decorated_edges: Vec<DecoratedEdge>,
+    /// Port-glyph squares (centers) drawn where IBD connector edges attach to
+    /// part boxes. Export-only notation (PORT_SIZE squares); not model elements.
+    pub port_glyphs: Vec<Pos2>,
 }
 
 impl Layout {
@@ -91,6 +94,22 @@ impl Layout {
                 max_x = max_x.max(pt.x);
                 max_y = max_y.max(pt.y);
             }
+            // Label extents (approximate width; labels are centered on their
+            // anchor) so frame sizing covers rail labels on outer channels.
+            if let (Some(label), Some(anchor)) = (&edge.label, edge.label_pos) {
+                let label_font = theme::BASE_FONT_SIZE * theme::KEYWORD_FONT_SCALE;
+                let half_w = label.chars().count() as f32 * label_font * 0.31;
+                min_x = min_x.min(anchor.x - half_w);
+                max_x = max_x.max(anchor.x + half_w);
+                min_y = min_y.min(anchor.y - label_font);
+                max_y = max_y.max(anchor.y + label_font);
+            }
+        }
+        for &pos in &self.port_glyphs {
+            min_x = min_x.min(pos.x - theme::PORT_HALF);
+            min_y = min_y.min(pos.y - theme::PORT_HALF);
+            max_x = max_x.max(pos.x + theme::PORT_HALF);
+            max_y = max_y.max(pos.y + theme::PORT_HALF);
         }
 
         if min_x == f32::INFINITY {
@@ -143,6 +162,8 @@ pub struct DecoratedEdge {
     pub end_marker: EdgeMarker,
     pub dashed: bool,
     pub label: Option<String>,
+    /// Explicit label anchor; when None the label sits at the polyline midpoint.
+    pub label_pos: Option<Pos2>,
 }
 
 /// Compute layout for an interconnection view of the given context element.

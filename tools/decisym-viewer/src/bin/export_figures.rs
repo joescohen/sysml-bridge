@@ -238,6 +238,7 @@ fn export_view(
         ViewKind::General => build_general_layout(model, context_id),
         ViewKind::Interconnection => {
             build_interconnection_layout(model, context_id, &spec.context_name)
+                .or_else(|| build_generic_ibd_layout(model, context_id))
                 .unwrap_or_else(|| layout::compute_layout(model, context_id, egui_ctx))
         }
         ViewKind::ActionFlow => build_flow_layout(
@@ -332,6 +333,179 @@ fn build_general_layout(model: &Model, context_id: ElementId) -> layout::Layout 
     );
     layout.sizes.insert(context_id, size);
     layout
+}
+
+/// Maximum characters for an aggregated IBD flow label before ellipsis.
+const IBD_LABEL_MAX_CHARS: usize = 40;
+/// Vertical spacing between distinct rail channels (px).
+const IBD_CHANNEL_STEP: f32 = 18.0;
+/// Gap between the part column and the first rail channel (px).
+const IBD_RAIL_GAP: f32 = 46.0;
+/// Vertical gap between stacked part boxes (px).
+const IBD_STACK_GAP: f32 = 64.0;
+/// Label y-stagger between adjacent channels to avoid horizontal collisions (px).
+const IBD_LABEL_STAGGER: f32 = 14.0;
+
+/// Generic Interconnection (IBD) layout for any context: part-usage children
+/// stacked in one column (hub — highest flow degree — centered), one
+/// aggregated edge per directed (source, target) pair labeled with the union
+/// of flow items, routed on side rails with a dedicated channel per edge, and
+/// port glyphs at every box attachment.
+fn build_generic_ibd_layout(model: &Model, context_id: ElementId) -> Option<layout::Layout> {
+    use std::collections::{BTreeMap, HashMap};
+
+    let context = model.element(context_id)?;
+    // Nodes: named part-typed children.
+    let mut name_to_id: HashMap<&str, ElementId> = HashMap::new();
+    let mut nodes: Vec<ElementId> = Vec::new();
+    for &cid in &context.children {
+        if let Some(c) = model.element(cid)
+            && matches!(c.kind, ElementKind::PartUsage | ElementKind::PartDef)
+            && let Some(n) = c.name.as_deref()
+        {
+            name_to_id.insert(n, cid);
+            nodes.push(cid);
+        }
+    }
+    if nodes.len() < 2 {
+        return None;
+    }
+
+    // Aggregate Flow/Connect relationships by directed (source, target) pair.
+    let mut agg: BTreeMap<(ElementId, ElementId), Vec<String>> = BTreeMap::new();
+    for rel in &model.relationships {
+        if !matches!(rel.kind, RelationshipKind::Flow | RelationshipKind::Connect) {
+            continue;
+        }
+        let (Some(&s), Some(&t)) = (
+            name_to_id.get(first_segment(&rel.source_path)),
+            name_to_id.get(first_segment(&rel.target_path)),
+        ) else {
+            continue;
+        };
+        let items = agg.entry((s, t)).or_default();
+        if let Some(item) = rel.type_ref.as_deref()
+            && !items.iter().any(|i| i == item)
+        {
+            items.push(item.to_string());
+        }
+    }
+    if agg.is_empty() {
+        return None;
+    }
+
+    // Order: hub (highest degree) in the middle of the stack, rest by degree
+    // alternating above/below.
+    let mut degree: HashMap<ElementId, usize> = HashMap::new();
+    for &(s, t) in agg.keys() {
+        *degree.entry(s).or_default() += 1;
+        *degree.entry(t).or_default() += 1;
+    }
+    let mut by_degree = nodes.clone();
+    by_degree.sort_by_key(|id| std::cmp::Reverse(degree.get(id).copied().unwrap_or(0)));
+    let mut order: Vec<ElementId> = Vec::with_capacity(by_degree.len());
+    for (i, id) in by_degree.into_iter().enumerate() {
+        if i % 2 == 0 {
+            order.insert(order.len() / 2, id);
+        } else {
+            order.insert(order.len().div_ceil(2), id);
+        }
+    }
+
+    // Stack the boxes in one centered column.
+    let sizes: HashMap<ElementId, Vec2> = order
+        .iter()
+        .map(|&id| (id, compute_export_element_size(model, id)))
+        .collect();
+    let max_w = sizes.values().map(|s| s.x).fold(0.0_f32, f32::max);
+    // Left rail channels are allocated for upward (later→earlier) edges, right
+    // rail for downward; count them first so the column x offset reserves space.
+    let row_of: HashMap<ElementId, usize> =
+        order.iter().enumerate().map(|(i, &id)| (id, i)).collect();
+    let n_left = agg.keys().filter(|(s, t)| row_of[t] < row_of[s]).count();
+    let col_x = EXPORT_FRAME_PADDING + IBD_RAIL_GAP + n_left as f32 * IBD_CHANNEL_STEP;
+
+    let mut lay = layout::Layout::default();
+    let mut y = EXPORT_FRAME_PADDING + theme::FRAME_TAB_HEIGHT;
+    for &id in &order {
+        let s = sizes[&id];
+        lay.positions
+            .insert(id, Pos2::new(col_x + (max_w - s.x) * 0.5, y));
+        lay.sizes.insert(id, s);
+        y += s.y + IBD_STACK_GAP;
+    }
+
+    let rect_of = |id: ElementId| -> Rect {
+        Rect::from_min_size(lay.positions[&id], lay.sizes[&id])
+    };
+
+    // Per-box attachment staggering: distribute each side's attachment points
+    // along the box height.
+    let mut side_counts: HashMap<(ElementId, bool), usize> = HashMap::new();
+    for &(s, t) in agg.keys() {
+        let down = row_of[&s] < row_of[&t];
+        side_counts
+            .entry((s, !down))
+            .and_modify(|c| *c += 1)
+            .or_insert(1); // source attaches: right if down
+        side_counts
+            .entry((t, !down))
+            .and_modify(|c| *c += 1)
+            .or_insert(1);
+    }
+    let mut side_used: HashMap<(ElementId, bool), usize> = HashMap::new();
+    let mut attach = |id: ElementId, left: bool| -> Pos2 {
+        let total = side_counts.get(&(id, left)).copied().unwrap_or(1);
+        let used = side_used.entry((id, left)).or_insert(0);
+        let r = rect_of(id);
+        let frac = (*used + 1) as f32 / (total + 1) as f32;
+        *used += 1;
+        let x = if left { r.left() } else { r.right() };
+        Pos2::new(x, r.top() + r.height() * frac)
+    };
+
+    let mut right_ch = 0usize;
+    let mut left_ch = 0usize;
+    for (&(s, t), items) in &agg {
+        let down = row_of[&s] < row_of[&t];
+        // Downward edges route on the right rail, upward on the left.
+        let left_side = !down;
+        let sp = attach(s, left_side);
+        let tp = attach(t, left_side);
+        let rail_x = if left_side {
+            left_ch += 1;
+            col_x - IBD_RAIL_GAP - (left_ch - 1) as f32 * IBD_CHANNEL_STEP
+        } else {
+            right_ch += 1;
+            col_x + max_w + IBD_RAIL_GAP + (right_ch - 1) as f32 * IBD_CHANNEL_STEP
+        };
+        let mut label = items.join(", ");
+        if label.chars().count() > IBD_LABEL_MAX_CHARS {
+            label = format!(
+                "{}...",
+                label.chars().take(IBD_LABEL_MAX_CHARS).collect::<String>()
+            );
+        }
+        let ch_index = if left_side { left_ch } else { right_ch };
+        let stagger = ((ch_index % 3) as f32 - 1.0) * IBD_LABEL_STAGGER;
+        lay.port_glyphs.push(sp);
+        lay.port_glyphs.push(tp);
+        lay.decorated_edges.push(layout::DecoratedEdge {
+            points: vec![
+                sp,
+                Pos2::new(rail_x, sp.y),
+                Pos2::new(rail_x, tp.y),
+                tp,
+            ],
+            start_marker: layout::EdgeMarker::None,
+            end_marker: layout::EdgeMarker::OpenArrow,
+            dashed: false,
+            label: Some(label),
+            label_pos: Some(Pos2::new(rail_x, (sp.y + tp.y) * 0.5 + stagger)),
+        });
+    }
+
+    Some(lay)
 }
 
 fn build_interconnection_layout(
@@ -710,6 +884,7 @@ fn build_graph_layout(
             } else {
                 Some(label.clone())
             },
+            label_pos: None,
         });
     }
     Some(layout)
@@ -934,6 +1109,7 @@ fn build_bdd_layout(model: &Model, context_id: ElementId) -> Option<layout::Layo
                 end_marker: layout::EdgeMarker::None,
                 dashed: false,
                 label,
+                label_pos: None,
             },
             Kind::Spec => layout::DecoratedEdge {
                 points: orth(
@@ -944,6 +1120,7 @@ fn build_bdd_layout(model: &Model, context_id: ElementId) -> Option<layout::Layo
                 end_marker: layout::EdgeMarker::HollowTriangle,
                 dashed: false,
                 label: None,
+                label_pos: None,
             },
         };
         layout.decorated_edges.push(edge);
@@ -1465,7 +1642,10 @@ fn render_decorated_edges(document: &mut PdfDocument, layout: &layout::Layout, t
             (pts[n - 2] - pts[n - 1]).normalized(),
         );
         if let Some(lbl) = &edge.label
-            && let Some(mid) = polyline_midpoint(&pts)
+            && let Some(mid) = edge
+                .label_pos
+                .map(|p| p + translation)
+                .or_else(|| polyline_midpoint(&pts))
         {
             let label_size = theme::BASE_FONT_SIZE * theme::KEYWORD_FONT_SCALE;
             let width = estimated_text_width(lbl, label_size);
@@ -1485,6 +1665,22 @@ fn render_decorated_edges(document: &mut PdfDocument, layout: &layout::Layout, t
                 color: theme::COLOR_KEYWORD_TEXT,
             });
         }
+    }
+
+    // Port glyphs: PORT_SIZE squares straddling the box border at each
+    // connector attachment (IBD notation; presentation-only, not model elements).
+    for &center in &layout.port_glyphs {
+        let c = center + translation;
+        document.push_rect(RectShape {
+            rect: Rect::from_center_size(c, Vec2::splat(theme::PORT_SIZE)),
+            radius: 0.0,
+            fill: Some(theme::COLOR_PORT_FILL),
+            stroke: Some(StrokeStyle {
+                color: theme::COLOR_ELEMENT_STROKE,
+                width: theme::ELEMENT_STROKE_WIDTH,
+                dash: None,
+            }),
+        });
     }
 }
 
