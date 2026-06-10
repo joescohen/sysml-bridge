@@ -28,10 +28,6 @@ docs/REVIEW.md
 # Editor/tool-specific local config
 .claude/
 .codex/
-dashboard/.claude/
-
-# Redundant lockfile (project uses pnpm)
-dashboard/package-lock.json
 
 # Python virtualenvs (local-only; recreate via tools/sysml-validator/requirements.txt)
 .venv/
