@@ -118,28 +118,30 @@ describe("relationalFindings — seeded-defect fixture (GATE-02 ROADMAP criterio
       provenanceSourceId: "corp-12",
     });
 
-    // ── Clean control: fully-traced req (Usage operands, satisfy+verify+derive) ──
-    const cleanReq = await store.createElement("RequirementDefinition", "CleanReq", {
+    // ── Clean control: fully-traced req (Usage operands only, satisfy+verify+derive) ──
+    // Both source and target are Usages so R4 does NOT fire.
+    // RequirementUsage as the requirement, PartUsage as the satisfying element.
+    const cleanReq = await store.createElement("RequirementUsage", "CleanReq", {
       provenanceSourceId: "corp-9",
     });
     const cleanPart = await store.createElement("PartUsage", "CleanPart", {
       provenanceSourceId: "corp-10",
     });
-    const cleanNeed = await store.createElement("RequirementDefinition", "CleanNeed", {
+    const cleanNeed = await store.createElement("RequirementUsage", "CleanNeed", {
       provenanceSourceId: "corp-13",
       stakeholderNeed: true,
     });
-    // satisfy (Usage → Req): PartUsage satisfies RequirementDefinition
+    // satisfy (PartUsage → RequirementUsage): both are Usages → no R4 finding
     await store.createElement("SatisfyRequirementUsage", "", {
       source: [{ "@id": cleanPart.id }],
       target: [{ "@id": cleanReq.id }],
     });
-    // verify (Usage → Req): PartUsage verifies RequirementDefinition
+    // verify (PartUsage → RequirementUsage): both are Usages → no R4 finding
     await store.createElement("VerifyRequirementUsage", "", {
       source: [{ "@id": cleanPart.id }],
       target: [{ "@id": cleanReq.id }],
     });
-    // derive (Req → Need): RequirementDefinition derives from a Need (req is source)
+    // derive (RequirementUsage → RequirementUsage-need): both are Usages → no R4 finding
     await store.createElement("DeriveRequirementUsage", "", {
       source: [{ "@id": cleanReq.id }],
       target: [{ "@id": cleanNeed.id }],
