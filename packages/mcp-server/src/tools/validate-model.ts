@@ -39,7 +39,6 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
     "validate_model",
     "Run completeness and consistency checks — unsatisfied requirements, orphaned elements, missing connections",
     {
-      scope: z.string().optional().describe("Element ID to scope validation to, or omit for full model"),
       corpus_path: z
         .string()
         .optional()
