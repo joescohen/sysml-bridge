@@ -39,7 +39,7 @@ There is no `.mbse-session.json` file. Track phase state conversationally:
 
 ## Output
 
-- RequirementDefinition elements (SN-001...) in SysON
-- UseCaseDefinition elements in SysON
+- RequirementDefinition elements (SN-001...) in the file-native model store
+- UseCaseDefinition elements in the file-native model store
 - Mermaid context diagram in chat
 - Summary of stakeholder needs and use cases with @ids

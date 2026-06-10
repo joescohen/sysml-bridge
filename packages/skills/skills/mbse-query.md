@@ -5,7 +5,7 @@ description: Answer natural-language questions grounded in actual model elements
 
 # MBSE Query
 
-Answer natural-language questions about the model by grounding every answer in live SysON data.
+Answer natural-language questions about the model by grounding every answer in the file-native model store (queried via `query_elements` and `query_relationships`).
 
 ## Workflow
 
