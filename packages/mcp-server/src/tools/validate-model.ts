@@ -1,6 +1,10 @@
 import { z } from "zod";
+import * as path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ModelStore } from "../store.js";
+import { audit } from "../audit/index.js";
+import { loadCorpusCached } from "../audit/corpus.js";
+import { writeReports } from "../audit/report.js";
 
 export function registerValidateModel(server: McpServer, smaps: ModelStore) {
   server.tool(
@@ -8,8 +12,20 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
     "Run completeness and consistency checks — unsatisfied requirements, orphaned elements, missing connections",
     {
       scope: z.string().optional().describe("Element ID to scope validation to, or omit for full model"),
+      corpus_path: z
+        .string()
+        .optional()
+        .describe(
+          "Path to extracted.json; default $SYSML_BRIDGE_CORPUS_PATH or examples/angars/model/extracted.json"
+        ),
+      write_report: z
+        .boolean()
+        .optional()
+        .describe(
+          "Write coverage-matrix.md and fidelity-report.md to the audits dir; default false"
+        ),
     },
-    async () => {
+    async ({ corpus_path, write_report }) => {
       try {
         const state = await smaps.getProjectState();
         const requirements = await smaps.queryElements("RequirementDefinition");
@@ -205,6 +221,27 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
           }
         }
 
+        // ── GATE-01 audit: findings / fidelity / matrix (additive) ──────────
+        // Legacy envelope above stays verbatim; these are appended as new keys.
+        const corpusPath =
+          corpus_path ??
+          process.env.SYSML_BRIDGE_CORPUS_PATH ??
+          path.join(process.cwd(), "examples/angars/model/extracted.json");
+        const corpus = await loadCorpusCached(corpusPath);
+
+        // Gather all elements for the audit (allRels already fetched above).
+        const allElements = await smaps.queryElements();
+        const auditResult = audit(allElements, allRels, corpus);
+
+        // Optional report write (default false — keeps existing tests clean).
+        let reportPaths: { matrixPath: string; fidelityPath: string } | undefined;
+        if (write_report === true) {
+          const auditsDir =
+            process.env.SYSML_BRIDGE_AUDITS_DIR ??
+            path.join(process.cwd(), "examples/angars/audits");
+          reportPaths = await writeReports(auditsDir, auditResult.matrix, auditResult.fidelity);
+        }
+
         return {
           content: [
             {
@@ -228,6 +265,11 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
                     elementsMissingBackpointer,
                     danglingRelationships,
                   },
+                  // ── GATE-01 additive keys ──
+                  findings: auditResult.findings,
+                  fidelity: auditResult.fidelity,
+                  matrix: auditResult.matrix,
+                  ...(reportPaths !== undefined ? { reportPaths } : {}),
                 },
                 null,
                 2
