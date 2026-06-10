@@ -91,7 +91,8 @@ export function structuralCheck(
   // Only checked when candidate is a TRACE_TYPES relationship (has meaningful
   // source/target semantics). Plain elements never trigger this rule.
   if (TRACE_TYPES.has(candidate.type)) {
-    for (const id of [...candidate.sourceIds, ...candidate.targetIds]) {
+    // WR-03: deduplicate before iterating to avoid duplicate findings for self-refs.
+    for (const id of [...new Set([...candidate.sourceIds, ...candidate.targetIds])]) {
       const el = byId.get(id);
       if (el && !el.type.endsWith("Usage")) {
         findings.push({

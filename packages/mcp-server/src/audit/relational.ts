@@ -100,11 +100,12 @@ export function relationalFindings(
   }
 
   // ── Defect 1: R4-def-operand ──
-  // For each relationship in TRACE_TYPES, for each id in sourceIds ∪ targetIds,
+  // For each relationship in TRACE_TYPES, for each DISTINCT id in sourceIds ∪ targetIds,
   // resolve via byId; if resolved and NOT a Usage → error (decision A3: error, always).
+  // WR-03: deduplicate before iterating to avoid duplicate findings for self-refs.
   for (const rel of relationships) {
     if (!TRACE_TYPES.has(rel.type)) continue;
-    for (const id of [...rel.sourceIds, ...rel.targetIds]) {
+    for (const id of [...new Set([...rel.sourceIds, ...rel.targetIds])]) {
       const el = byId.get(id);
       if (el && !el.type.endsWith("Usage")) {
         findings.push({
