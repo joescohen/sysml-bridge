@@ -30,6 +30,9 @@ import type { MatrixRow, AuditResult } from "./findings.js";
  *   | ----------- | --------- | -------- | ------- |
  *   | <name>      | yes/no    | yes/no   | yes/no  |
  */
+/** Escape pipe characters so they do not corrupt markdown table cells (IN-02 fix). */
+const cell = (s: string): string => s.replace(/\|/g, "\\|");
+
 export function renderMatrixMarkdown(matrix: MatrixRow[]): string {
   const now = new Date().toISOString();
   const total = matrix.length;
@@ -49,7 +52,7 @@ export function renderMatrixMarkdown(matrix: MatrixRow[]): string {
   ];
 
   for (const row of matrix) {
-    const name = row.reqName ?? row.reqId;
+    const name = cell(row.reqName ?? row.reqId);
     lines.push(
       `| ${name} | ${row.satisfied ? "yes" : "no"} | ${row.verified ? "yes" : "no"} | ${row.derived ? "yes" : "no"} |`
     );
@@ -95,7 +98,7 @@ export function renderFidelityMarkdown(
     lines.push("| Corpus ID | Name | Kind |");
     lines.push("| --------- | ---- | ---- |");
     for (const d of fidelity.drops) {
-      lines.push(`| ${d.corpusId} | ${d.corpusName} | ${d.kind} |`);
+      lines.push(`| ${cell(d.corpusId)} | ${cell(d.corpusName)} | ${cell(d.kind)} |`);
     }
   }
   lines.push("");
@@ -109,7 +112,7 @@ export function renderFidelityMarkdown(
     lines.push("| Provenance ID | Element Name | Element Type |");
     lines.push("| ------------- | ------------ | ------------ |");
     for (const f of fidelity.fabrications) {
-      lines.push(`| ${f.corpusId} | ${f.corpusName} | ${f.kind} |`);
+      lines.push(`| ${cell(f.corpusId)} | ${cell(f.corpusName)} | ${cell(f.kind)} |`);
     }
   }
   lines.push("");
@@ -128,7 +131,7 @@ export function renderFidelityMarkdown(
     );
     for (const m of fidelity.nearMatches) {
       lines.push(
-        `| ${m.corpusId} | ${m.corpusName} | ${m.modelElementId} | ${m.modelName} | ${m.similarity.toFixed(3)} | ${m.band} |`
+        `| ${cell(m.corpusId)} | ${cell(m.corpusName)} | ${cell(m.modelElementId)} | ${cell(m.modelName)} | ${m.similarity.toFixed(3)} | ${cell(m.band)} |`
       );
     }
   }
