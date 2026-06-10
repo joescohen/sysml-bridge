@@ -5,3 +5,10 @@ export { parseNeeds, parseActivityId, stripIdPrefix } from "./extract/parsers.js
 export { assertCount } from "./extract/counts.js";
 export { extractN2Triples, assertSpotCheck, N2_ROW_IS_SOURCE } from "./extract/n2.js";
 export type { N2RawTriple } from "./extract/n2.js";
+export {
+  WORKBOOKS,
+  N2_SHEETS,
+  ANGARS_SS_HEADERS,
+  SUBSYSTEM_SHEET_MAP,
+} from "./extract/workbook-config.js";
+export type { WorkbookConfig, N2SheetConfig } from "./extract/workbook-config.js";

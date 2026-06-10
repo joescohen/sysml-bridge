@@ -29,13 +29,15 @@
     "dev": "pnpm --filter mcp-server dev",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
-    "validate:sysml": "tools/sysml-validator/run.sh"
+    "validate:sysml": "tools/sysml-validator/run.sh",
+    "extract:angars": "pnpm tsx scripts/extract-angars.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "packageManager": "pnpm@9.15.0",
   "devDependencies": {
+    "@sysml-bridge/ir": "workspace:*",
     "tsx": "^4.0.0",
     "xlsx": "file:vendor/xlsx-0.20.3.tgz"
   }
