@@ -359,6 +359,90 @@ the `validate-sysml` Java validator for server-side validation.
 SysML v2.0 was formally adopted by the OMG on July 21, 2025:
 https://www.omg.org/news/releases/pr2025/07-21-25.htm
 
+## Vendored build (sysml-bridge)
+
+### Provenance
+
+This directory is a vendored fork of the DeciSym viewer codebase,
+baseline commit 683c969, rescued from the temporary `/tmp/decisym-spike`
+exploration and promoted to a first-class in-repo tool. It is now fully
+self-contained — no dependency on any external path or staging area.
+
+### Toolchain prerequisite
+
+The build pins Rust 1.96.0 via `rust-toolchain.toml` in this directory.
+`rustup` reads this file automatically and selects the correct toolchain.
+If the toolchain is not yet installed, rustup will prompt to install it:
+
+```sh
+rustup toolchain install 1.96.0
+```
+
+Verify with (from `tools/decisym-viewer/`):
+
+```sh
+rustc --version   # should report rustc 1.96.0
+```
+
+### Building the exporter
+
+```sh
+cd tools/decisym-viewer
+cargo build --release --bin export_figures
+```
+
+The resulting binary is at `target/release/export_figures`.
+
+### Direct usage
+
+```sh
+export_figures <input.sysml> <output-dir>
+export_figures <input.sysml> <output-dir> --spec views.json
+```
+
+Without `--spec`, renders all 11 hardcoded VIEW_SPECS entries (the default
+ANGARS corpus views). With `--spec`, renders only the views listed in the
+JSON file — see `--spec JSON schema` below.
+
+### `--spec` JSON schema
+
+```json
+[
+  {
+    "file_stem": "my-bdd",
+    "context_name": "My Package",
+    "frame_label": "bdd",
+    "kind": "bdd"
+  }
+]
+```
+
+Fields:
+- `file_stem` — output filename without extension (e.g. `"my-bdd"` → `my-bdd.pdf`)
+- `context_name` — name of the package or element in the `.sysml` file that provides the rendering context
+- `frame_label` — label shown in the diagram frame tab
+- `kind` — one of: `"general"`, `"interconnection"`, `"action"`, `"state"`, `"bdd"`, `"requirements"`, `"traceability"`
+
+### Repo-level wrapper
+
+The root `package.json` exposes a `render:views` script that wraps the
+renderer build and invocation:
+
+```sh
+pnpm render:views <input.sysml> <output-dir> [--spec views.json] [--png]
+```
+
+The `--png` flag rasterizes each produced PDF to PNG via `pdftoppm`
+(requires `poppler-utils` or equivalent).
+
+### Running tests
+
+```sh
+cd tools/decisym-viewer
+cargo test --bin export_figures   # unit tests for --spec parsing
+cargo clippy --bin export_figures -- -D warnings
+```
+
 ## License
 
 MIT OR Apache-2.0
