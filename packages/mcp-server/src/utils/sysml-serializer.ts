@@ -461,7 +461,15 @@ export function serializeToSysml(
     serializeElement(root, null, 0, ctx);
   }
 
-  // Emit trace relationship statements (flat, package-level — usages only).
+  // Emit trace relationship statements wrapped in a package body.
+  // Wrapping in a package (rather than top-level emission) is required so the
+  // decisym-viewer parser can resolve the relationships: both `satisfy` and
+  // `dependency` handlers require a non-None parent element — top-level
+  // statements with parent=None are silently dropped by parse_top_level().
+  // A `package 'ANGARS Trace' { ... }` block gives each statement a parent
+  // context while remaining valid per the grammar (satisfyRequirementUsage is
+  // legal inside packageMember → usageElement → occurrenceUsageElement →
+  // behaviorUsageElement; dependency is a definitionElement).
   const traceLines: string[] = [];
   for (const rel of relationships) {
     const emitter = TRACE_EMIT[rel.type];
@@ -476,10 +484,12 @@ export function serializeToSysml(
 
   if (traceLines.length > 0) {
     lines.push("");
-    lines.push("// traceability");
+    lines.push("package 'ANGARS Trace' {");
+    lines.push("  // traceability");
     for (const tl of traceLines) {
-      lines.push(tl);
+      lines.push(`  ${tl}`);
     }
+    lines.push("}");
   }
 
   // Any nested statements whose owner was NOT emitted at all (e.g. the owner
