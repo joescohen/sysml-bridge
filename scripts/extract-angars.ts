@@ -510,22 +510,372 @@ console.log(
 );
 
 // ---------------------------------------------------------------------------
-// TODO stubs for Task 3 (subsystems, components, n2Interfaces)
+// SUBSYSTEM + COMPONENT SCOPE (Interface Data N2.xlsx)
 // ---------------------------------------------------------------------------
 
-const subsystems: never[] = [];
-const components: never[] = [];
-const n2Interfaces: never[] = [];
+const N2_XLSX_FILE = "Interface Data N2.xlsx";
+const N2_SKIP_HEADERS = new Set(["Source / Destination", "External"]);
+
+// Read ANGARS SS sheet with header:1
+const ssRows = XLSX.utils.sheet_to_json<unknown[]>(
+  XLSX.readFile(path.join(CORPUS_DIR, N2_XLSX_FILE)).Sheets["ANGARS SS"],
+  { header: 1, blankrows: false }
+) as unknown[][];
+
+// Assert header columns 1..7 deep-equal ANGARS_SS_HEADERS verbatim
+// This assertion is the guard against corpus label drift (SUBSYSTEM_SHEET_MAP keys depend on these)
+const ssHeader = (ssRows[0] as unknown[]).map((h) => String(h ?? "").trim());
+const expectedHeaderSlice = Array.from(ANGARS_SS_HEADERS);
+for (let i = 0; i < expectedHeaderSlice.length; i++) {
+  if (ssHeader[i + 1] !== expectedHeaderSlice[i]) {
+    throw new Error(
+      `[ETL-03] ANGARS SS header col ${i + 1}: expected "${expectedHeaderSlice[i]}", got "${ssHeader[i + 1]}" — corpus label drifted, update SUBSYSTEM_SHEET_MAP`
+    );
+  }
+}
+
+// subsystems (6 entities): one per non-External header
+// External is an environment actor with NO subsystems[] entry, by design
+// Participant id rule (pinned): sourceId/targetId = stableId("subsystem", label) for the
+// six subsystem labels, stableId("external", "External") for the External row/column.
+const subsystemOrder = expectedHeaderSlice.filter((h) => h !== "External");
+const subsystemComponentIds: Map<string, string[]> = new Map(
+  subsystemOrder.map((h) => [h, []])
+);
+
+// We will fill componentIds after processing component N2 sheets below.
+// Build placeholder subsystem objects now; componentIds arrays will be mutated.
+
+type SubsystemEntity = {
+  id: string;
+  kind: "subsystem";
+  naturalKey: string;
+  name: string;
+  componentIds: string[];
+  provenance: { workbook: string; sheet: string };
+};
+
+const subsystems: SubsystemEntity[] = subsystemOrder.map((header) => ({
+  id: stableId("subsystem", header),
+  kind: "subsystem",
+  naturalKey: header,
+  name: header,
+  componentIds: subsystemComponentIds.get(header)!, // reference to the same array — mutable
+  provenance: { workbook: N2_XLSX_FILE, sheet: "ANGARS SS" },
+}));
+
+if (subsystems.length !== 6) {
+  throw new Error(`[ETL-03] subsystems: expected 6, got ${subsystems.length}`);
+}
+
+// Extract subsystem-scope N2 triples from ANGARS SS
+const ssTriples = extractN2Triples(ssRows);
+
+// ETL-02 DIRECTION SPOT-CHECKS (both cells verified against live corpus 2026-06-09):
+// Cell "Power Subsystem" row -> "Command & Control Subsystem" col = "28VDC, Telemetry, ..."
+// Cell "External" row -> "Command & Control Subsystem" col = "..., Operator Commands, ..."
+assertSpotCheck(ssTriples, "Power Subsystem", "Command & Control Subsystem", "28VDC");
+assertSpotCheck(ssTriples, "External", "Command & Control Subsystem", "Operator Commands");
+
+// Build n2Interfaces for subsystem scope
+// Participant id rule: stableId("subsystem", label) for subsystem labels;
+//                      stableId("external", "External") for External
+function resolveParticipantId(label: string, scope: "subsystem" | "component" | "functional"): string {
+  if (label === "External") return stableId("external", "External");
+  if (scope === "functional") return stableId("function", label);
+  if (scope === "subsystem") return stableId("subsystem", label);
+  return stableId("component", label);
+}
+
+const n2TripleMap = new Map<string, {
+  id: string;
+  kind: "n2";
+  scope: "subsystem" | "component" | "functional";
+  sourceId: string;
+  targetId: string;
+  sourceLabel: string;
+  targetLabel: string;
+  flow: string;
+  provenance: { workbook: string; sheet: string; row: number; cell: string };
+}>();
+
+for (const t of ssTriples) {
+  const sourceId = resolveParticipantId(t.sourceLabel, "subsystem");
+  const targetId = resolveParticipantId(t.targetLabel, "subsystem");
+  const tripleNaturalKey = `subsystem:${t.sourceLabel}->${t.targetLabel}:${t.flow}`;
+  const tripleId = stableId("n2", tripleNaturalKey);
+  const absRow = t.rowIndex + 1 + 1; // +1 for header row (rowIndex is 0-based data), +1 for 1-based
+  const cellRef = XLSX.utils.encode_cell({ r: t.rowIndex + 1, c: t.colIndex });
+  if (!n2TripleMap.has(tripleId)) {
+    n2TripleMap.set(tripleId, {
+      id: tripleId,
+      kind: "n2",
+      scope: "subsystem",
+      sourceId,
+      targetId,
+      sourceLabel: t.sourceLabel,
+      targetLabel: t.targetLabel,
+      flow: t.flow,
+      provenance: { workbook: N2_XLSX_FILE, sheet: "ANGARS SS", row: t.rowIndex, cell: cellRef },
+    });
+  }
+}
+console.log(`ANGARS SS (subsystem scope): ${ssTriples.length} triples`);
+
+// COMPONENT SCOPE — read Interface Data N2.xlsx for the 6 component sheets
+const n2Wb = XLSX.readFile(path.join(CORPUS_DIR, N2_XLSX_FILE));
+let totalComponents = 0;
+
+const componentSheets = Object.keys(SUBSYSTEM_SHEET_MAP).map((subsysHeader) => ({
+  subsysHeader,
+  sheet: SUBSYSTEM_SHEET_MAP[subsysHeader],
+}));
+
+const componentEntities = new Map<string, {
+  id: string;
+  kind: "component";
+  naturalKey: string;
+  name: string;
+}>();
+
+for (const { subsysHeader, sheet } of componentSheets) {
+  const sheetData = n2Wb.Sheets[sheet];
+  if (!sheetData) {
+    throw new Error(`[ETL-03] Component N2 sheet "${sheet}" not found in ${N2_XLSX_FILE}`);
+  }
+  const compRows = XLSX.utils.sheet_to_json<unknown[]>(sheetData, {
+    header: 1,
+    blankrows: false,
+  }) as unknown[][];
+
+  // Roster = header cells minus "Source / Destination" and "External"
+  const compHeader = (compRows[0] as unknown[]).map((h) => String(h ?? "").trim());
+  const roster = compHeader.filter((h) => h.length > 0 && !N2_SKIP_HEADERS.has(h));
+
+  const expectedRosterCount = (N2_SHEETS as Record<string, { expectedParticipants: number }>)[sheet]?.expectedParticipants;
+  if (expectedRosterCount === undefined) {
+    throw new Error(`[ETL-03] No expectedParticipants in N2_SHEETS for sheet "${sheet}"`);
+  }
+  if (roster.length !== expectedRosterCount) {
+    throw new Error(
+      `[ETL-03] Component N2 sheet "${sheet}" roster: expected ${expectedRosterCount} components, got ${roster.length}`
+    );
+  }
+  totalComponents += roster.length;
+
+  // Fill subsystem's componentIds (the array is shared via reference)
+  const subsysEntry = subsystems.find((s) => s.naturalKey === subsysHeader);
+  if (!subsysEntry) {
+    throw new Error(`[ETL-03] No subsystem entity found for header "${subsysHeader}"`);
+  }
+
+  for (const compName of roster) {
+    // Component naturalKey is the VERBATIM cell — "Transciever"/"Reciever" misspellings included
+    const compEntity = {
+      id: stableId("component", compName),
+      kind: "component" as const,
+      naturalKey: compName,
+      name: compName,
+    };
+    if (!componentEntities.has(compName)) {
+      componentEntities.set(compName, compEntity);
+    }
+    subsysEntry.componentIds.push(compEntity.id);
+  }
+
+  // Extract component-scope N2 triples
+  const compTriples = extractN2Triples(compRows);
+  for (const t of compTriples) {
+    const sourceId = t.sourceLabel === "External"
+      ? stableId("external", "External")
+      : stableId("component", t.sourceLabel);
+    const targetId = t.targetLabel === "External"
+      ? stableId("external", "External")
+      : stableId("component", t.targetLabel);
+    const tripleNaturalKey = `component:${t.sourceLabel}->${t.targetLabel}:${t.flow}`;
+    const tripleId = stableId("n2", tripleNaturalKey);
+    const cellRef = XLSX.utils.encode_cell({ r: t.rowIndex + 1, c: t.colIndex });
+    if (!n2TripleMap.has(tripleId)) {
+      n2TripleMap.set(tripleId, {
+        id: tripleId,
+        kind: "n2",
+        scope: "component",
+        sourceId,
+        targetId,
+        sourceLabel: t.sourceLabel,
+        targetLabel: t.targetLabel,
+        flow: t.flow,
+        provenance: { workbook: N2_XLSX_FILE, sheet, row: t.rowIndex, cell: cellRef },
+      });
+    }
+  }
+  console.log(`${sheet} (component scope): ${compTriples.length} triples`);
+}
+
+if (totalComponents !== 34) {
+  throw new Error(`[ETL-03] components total: expected 34, got ${totalComponents}`);
+}
+
+// Sorted component array (order stable for determinism)
+const components = Array.from(componentEntities.values()).sort((a, b) =>
+  a.naturalKey.localeCompare(b.naturalKey)
+);
+
+if (components.length !== 34) {
+  throw new Error(`[ETL-03] components unique: expected 34, got ${components.length}`);
+}
 
 // ---------------------------------------------------------------------------
-// Summary (Tasks 1-2 partial; write happens in Task 3)
+// FUNCTIONAL SCOPE — N2 Functional.xlsx :: Internal N2
 // ---------------------------------------------------------------------------
 
-console.log("=== ANGARS Full-Corpus Extraction (partial — Tasks 1-2) ===");
-console.log(`needs         : ${needs.length}`);
-console.log(`requirements  : ${requirements.length}`);
-console.log(`satisfies     : ${satisfies.length}`);
-console.log(`functions     : ${functions.length}`);
-console.log(`behaviorDecomp: ${behaviorDecomp.length}`);
-console.log(`kpps          : ${kpps.length}`);
-console.log("(subsystems/components/n2Interfaces: Task 3 stubs)");
+const FUNC_N2_FILE = "N2 Functional.xlsx";
+const funcN2Wb = XLSX.readFile(path.join(CORPUS_DIR, FUNC_N2_FILE));
+const funcN2Rows = XLSX.utils.sheet_to_json<unknown[]>(funcN2Wb.Sheets["Internal N2"], {
+  header: 1,
+  blankrows: false,
+}) as unknown[][];
+
+// Assert header == ["Sender / Receiver", "F1".."F9"] (9 function columns)
+const funcHeader = (funcN2Rows[0] as unknown[]).map((h) => String(h ?? "").trim());
+const expectedFuncHeader = ["Sender / Receiver", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9"];
+if (funcHeader.length !== expectedFuncHeader.length) {
+  throw new Error(
+    `[ETL-03] Internal N2 header: expected ${expectedFuncHeader.length} columns, got ${funcHeader.length}`
+  );
+}
+for (let i = 0; i < expectedFuncHeader.length; i++) {
+  if (funcHeader[i] !== expectedFuncHeader[i]) {
+    throw new Error(
+      `[ETL-03] Internal N2 header col ${i}: expected "${expectedFuncHeader[i]}", got "${funcHeader[i]}"`
+    );
+  }
+}
+
+// Assert exactly 9 data rows
+const funcDataRows = funcN2Rows.slice(1);
+if (funcDataRows.length !== 9) {
+  throw new Error(`[ETL-03] Internal N2 data rows: expected 9, got ${funcDataRows.length}`);
+}
+
+// CORPUS ANOMALY 2: the position-9 sender row is mislabeled "F8: Provide Power" (duplicate F8).
+// Key sender by POSITION (header[i+1]), NEVER by parsing the row label.
+// Assertion: exactly ONE row has parseActivityId(rowLabel) != its positional column id
+let mislabeledRowCount = 0;
+for (let i = 0; i < funcDataRows.length; i++) {
+  const rowLabel = String((funcDataRows[i] as unknown[])[0] ?? "").trim();
+  const positionalId = funcHeader[i + 1]; // header[1..9] = F1..F9
+  const parsedId = parseActivityId(rowLabel);
+  if (parsedId !== positionalId) {
+    mislabeledRowCount++;
+  }
+}
+// Throw if 0 (corpus fixed — position-keying comment needs revisiting) or >1 (new anomaly)
+if (mislabeledRowCount === 0) {
+  throw new Error(
+    `[ETL-03] Internal N2 mislabeled-row assertion: expected exactly 1 mislabeled row ` +
+    `(CORPUS ANOMALY 2 — "F8: Provide Power" row should be F9). Got 0 — ` +
+    `if the corpus was fixed, remove the position-keying workaround and repin.`
+  );
+}
+if (mislabeledRowCount > 1) {
+  throw new Error(
+    `[ETL-03] Internal N2 mislabeled-row assertion: expected exactly 1, got ${mislabeledRowCount}. ` +
+    `New corpus anomaly — review and update the extractor.`
+  );
+}
+
+// Extract functional triples — sender keyed by header position, not row label
+const funcRawTriples = extractN2Triples(funcN2Rows);
+// Map to functional scope triples: sourceId = stableId("function", header[rowIndex+1])
+for (const t of funcRawTriples) {
+  // rowIndex is 0-based data index; positional function id = header[rowIndex+1]
+  const positionalSourceId = funcHeader[t.rowIndex + 1];
+  const sourceId = stableId("function", positionalSourceId);
+  // targetId resolves to Task-2 function entities (including synthesized F9)
+  const targetId = stableId("function", t.targetLabel);
+  const tripleNaturalKey = `functional:${positionalSourceId}->${t.targetLabel}:${t.flow}`;
+  const tripleId = stableId("n2", tripleNaturalKey);
+  const cellRef = XLSX.utils.encode_cell({ r: t.rowIndex + 1, c: t.colIndex });
+  if (!n2TripleMap.has(tripleId)) {
+    n2TripleMap.set(tripleId, {
+      id: tripleId,
+      kind: "n2",
+      scope: "functional",
+      sourceId,
+      targetId,
+      sourceLabel: positionalSourceId, // clean positional id, not the mislabeled row label
+      targetLabel: t.targetLabel,
+      flow: t.flow,
+      provenance: { workbook: FUNC_N2_FILE, sheet: "Internal N2", row: t.rowIndex, cell: cellRef },
+    });
+  }
+}
+console.log(`Internal N2 (functional scope): ${funcRawTriples.length} triples`);
+
+// External N2: deferred (A4) — actor<->function flows are not in ETL-01 enumeration
+// and cells use a different Send:/Receive: verb convention
+console.log("External N2: deferred (A4)");
+
+// Assert each scope yielded > 0 triples
+const ssCount = Array.from(n2TripleMap.values()).filter((t) => t.scope === "subsystem").length;
+const compCount = Array.from(n2TripleMap.values()).filter((t) => t.scope === "component").length;
+const funcCount = Array.from(n2TripleMap.values()).filter((t) => t.scope === "functional").length;
+const extCount = Array.from(n2TripleMap.values()).filter((t) => t.scope === "external").length;
+
+if (ssCount === 0) throw new Error("[ETL-02] n2Interfaces: subsystem scope yielded 0 triples");
+if (compCount === 0) throw new Error("[ETL-02] n2Interfaces: component scope yielded 0 triples");
+if (funcCount === 0) throw new Error("[ETL-02] n2Interfaces: functional scope yielded 0 triples");
+if (extCount !== 0) {
+  throw new Error(`[ETL-03] n2Interfaces: expected 0 external-scope triples, got ${extCount}`);
+}
+
+console.log(`n2Interfaces scope totals: subsystem=${ssCount}, component=${compCount}, functional=${funcCount}, external=${extCount}`);
+
+// Sort n2Interfaces by id (for determinism)
+const n2Interfaces = Array.from(n2TripleMap.values()).sort((a, b) => a.id.localeCompare(b.id));
+
+// ---------------------------------------------------------------------------
+// WRITE BOUNDARY (IR-01/IR-02)
+// ---------------------------------------------------------------------------
+
+const assembled = {
+  schema_version: SCHEMA_VERSION,
+  // "ANGARS" scopes the whole system (the legacy field now covers all subsystems)
+  subsystem: "ANGARS",
+  needs,
+  requirements,
+  functions,
+  components,
+  satisfies,
+  // allocations: [] — no corpus Func->Comp source; allocations are model-asserted
+  // downstream in Phase 4 and flagged as such (same note as legacy cc extractor)
+  allocations: [] as never[],
+  subsystems,
+  n2Interfaces,
+  kpps,
+  behaviorDecomp,
+};
+
+// IR-01: ExtractedSchema.parse validates the full document BEFORE any file write
+const out = ExtractedSchema.parse(assembled);
+
+fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+fs.writeFileSync(OUTPUT_FILE, JSON.stringify(out, null, 2), "utf-8");
+
+// ---------------------------------------------------------------------------
+// Summary (full extraction complete)
+// ---------------------------------------------------------------------------
+
+console.log("=== ANGARS Full-Corpus Extraction Complete ===");
+console.log(`needs         : ${out.needs.length}`);
+console.log(`requirements  : ${out.requirements.length}`);
+console.log(`functions     : ${out.functions.length}`);
+console.log(`components    : ${out.components.length}`);
+console.log(`satisfies     : ${out.satisfies.length}`);
+console.log(`allocations   : ${out.allocations.length}`);
+console.log(`subsystems    : ${out.subsystems?.length ?? 0}`);
+console.log(`n2Interfaces  : ${out.n2Interfaces?.length ?? 0}`);
+console.log(`kpps          : ${out.kpps?.length ?? 0}`);
+console.log(`behaviorDecomp: ${out.behaviorDecomp?.length ?? 0}`);
+console.log(`Output        : ${OUTPUT_FILE}`);
