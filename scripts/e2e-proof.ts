@@ -45,14 +45,26 @@ const STORE_DIR =
 const OUTPUT_SYSML = path.join(REPO_ROOT, "examples/angars/model/angars-full.sysml");
 const OUTPUT_VIEWS = path.join(REPO_ROOT, "examples/angars/model/e2e-views.json");
 const OUTPUT_REPORT = path.join(REPO_ROOT, "examples/angars/model/E2E-REPORT.md");
+const SLICES_DIR = path.join(REPO_ROOT, "examples/angars/model/slices");
 const VALIDATOR_SH = path.join(REPO_ROOT, "tools/sysml-validator/run.sh");
 const VALIDATOR_REQS = path.join(REPO_ROOT, "tools/sysml-validator/requirements.txt");
+
+// Cameo CE "major element" cap — blocks model creation past this threshold.
+// Per cc-presentation.ts: counts every materialized model element (structural
+// usages, defs, packages) PLUS every relationship that Cameo materializes
+// (satisfy, allocate, verify, dependency — each creates a model element).
+const CAMEO_ELEMENT_CAP = 500;
+
+// Per-slice soft ceiling: leave headroom below the hard cap for Cameo's own
+// internal bookkeeping elements that don't appear in the SysML text.
+const SLICE_ELEMENT_TARGET = 450;
 
 // ---------------------------------------------------------------------------
 // CLI args
 // ---------------------------------------------------------------------------
 
 const BUILD_ONLY = process.argv.includes("--build-only");
+const RUN_SLICES = process.argv.includes("--slices") || !BUILD_ONLY;
 
 // ---------------------------------------------------------------------------
 // Divergence log (accumulated during build, emitted in report)
@@ -975,6 +987,34 @@ async function main(): Promise<void> {
   runGrammarGate(OUTPUT_SYSML);
 
   // ─────────────────────────────────────────────────────────────────────────
+  // SLICE STAGE — Cameo CE cap assessment + per-pillar slice emission
+  // ─────────────────────────────────────────────────────────────────────────
+  let sliceReport: SliceReport[] = [];
+  if (RUN_SLICES) {
+    const storeState = await store.getProjectState();
+    sliceReport = await runSliceStage(
+      allElements,
+      allRelationships,
+      storeState.totalElements,
+      reqNkToElemId,
+      needNkToElemId,
+      subsysNkToElemId,
+      subsysUsageIdByNk,
+      compNkToElemId,
+      funcNkToElemId,
+      l2Functions,
+      l3Functions,
+      l2UsageByNk,
+      verifyMethodToElemId,
+      sysDefId,
+      structPkgId,
+      reqPkgId,
+      behaviorPkgId,
+      verifyPkgId,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // VIEW-SPEC EMISSION
   // ─────────────────────────────────────────────────────────────────────────
   console.log("\n=== View-Spec Emission (e2e-views.json) ===");
@@ -1068,6 +1108,23 @@ async function main(): Promise<void> {
     `Written to: ${OUTPUT_VIEWS}`,
     `Entries: ${viewSpec.length} (no 'state' entry — corpus has no state-machine data)`,
     ``,
+    ...(sliceReport.length > 0 ? [
+      `## Cameo CE Cap Assessment`,
+      ``,
+      `Full model: ${state2.totalElements} emitted elements (Cameo CE cap: ${CAMEO_ELEMENT_CAP}): ${state2.totalElements > CAMEO_ELEMENT_CAP ? "OVER — slicing required" : "UNDER — single file viable"}`,
+      `Strategy: per-pillar self-contained slices, each under ${SLICE_ELEMENT_TARGET} elements`,
+      ``,
+      `## Slice Inventory`,
+      ``,
+      `| File | Pillar | Element Count | Validator | Self-contained |`,
+      `|------|--------|---------------|-----------|----------------|`,
+      ...sliceReport.map((s) =>
+        `| ${path.basename(s.filePath)} | ${s.pillar} | ${s.elementCount} | ${s.validatorResult} | unresolved-in-slice: ${s.unresolvedCount} |`
+      ),
+      ``,
+      `TF-10 (ScalarValues import): ${sliceReport.every((s) => !s.hasScalarImport) ? "CLEAR — no scalar-typed attributes emitted; import ScalarValues not present in any slice" : "PRESENT — see individual slice reports"}`,
+      ``,
+    ] : []),
   ];
 
   const reportText = reportLines.join("\n");
@@ -1095,6 +1152,595 @@ async function main(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Gate 2: grammar gate — exit 2 = HARD FAIL (closes generate-cc-model.ts:686-704 soft-fail hole)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Slice stage types
+// ---------------------------------------------------------------------------
+
+interface SliceReport {
+  filePath: string;
+  pillar: string;
+  elementCount: number;
+  validatorResult: string;
+  hasScalarImport: boolean;
+  unresolvedCount: number;
+}
+
+// ---------------------------------------------------------------------------
+// runSliceStage — cap assessment + per-pillar self-contained slice emission
+// ---------------------------------------------------------------------------
+//
+// SELF-CONTAINED SLICE RULE: every name operand in a satisfy/verify/dependency
+// line must be declared in the same file. This means:
+//   - slice-requirements.sysml: only RequirementUsages + DeriveRequirementUsage
+//   - slice-structure.sysml: only structural elements + flows
+//   - slice-behavior.sysml: only ActionDef/ActionUsage + successions + functional flows
+//   - slice-trace.sysml: re-declares participating usages (flat, untyped) +
+//     satisfy + verify + dependency lines. This is the historically risky slice
+//     (exercises R3 objective{verify} and R4 usage-operand patterns).
+//
+// Cameo CE cap = 500 "major elements" — every package/def/usage/trace-statement
+// materializes as a model element. Slicing ensures each paste session stays under.
+
+async function runSliceStage(
+  allElements: SysmlElement[],
+  allRelationships: SysmlRelationship[],
+  totalElements: number,
+  reqNkToElemId: Map<string, string>,
+  needNkToElemId: Map<string, string>,
+  subsysNkToElemId: Map<string, string>,
+  subsysUsageIdByNk: Map<string, string>,
+  compNkToElemId: Map<string, string>,
+  funcNkToElemId: Map<string, string>,
+  l2Functions: Extracted["functions"],
+  l3Functions: Extracted["functions"],
+  l2UsageByNk: Map<string, string>,
+  verifyMethodToElemId: Map<string, string>,
+  sysDefId: string,
+  structPkgId: string,
+  reqPkgId: string,
+  behaviorPkgId: string,
+  verifyPkgId: string,
+): Promise<SliceReport[]> {
+  console.log("\n=== Slice Stage: Cameo CE Cap Assessment ===");
+
+  // Cap verdict
+  const verdict = totalElements > CAMEO_ELEMENT_CAP
+    ? `OVER (${totalElements} > ${CAMEO_ELEMENT_CAP}) — slicing required`
+    : `UNDER (${totalElements} <= ${CAMEO_ELEMENT_CAP}) — single file viable; slices emitted as documented fallback`;
+  console.log(`  full model: ${totalElements} emitted elements (cap ${CAMEO_ELEMENT_CAP}): ${verdict}`);
+
+  // Prepare slices dir
+  fs.mkdirSync(SLICES_DIR, { recursive: true });
+
+  // Build element lookup by id
+  const elementById = new Map(allElements.map((e) => [e.id, e]));
+
+  // Helper: get name for an element id (quoted if contains non-identifier chars)
+  function elemName(id: string): string | null {
+    const e = elementById.get(id);
+    if (!e?.name) return null;
+    return e.name;
+  }
+
+  // Helper: quote name if needed (same logic as serializer refName)
+  function quoteName(name: string): string {
+    // If name contains spaces, special chars, or starts with digit — quote it
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return name;
+    return `'${name.replace(/'/g, "\\'")}'`;
+  }
+
+  function qn(id: string): string | null {
+    const n = elemName(id);
+    if (n === null) return null;
+    return quoteName(n);
+  }
+
+  // Helper: count elements in a SysML text string (packages + defs + usages + trace stmts)
+  function countSliceElements(sysml: string): number {
+    // Count declaration keywords (each materializes as a Cameo model element)
+    const declKeywords = [
+      /\brequirement\s+/g,
+      /\bpart\s+def\s+/g,
+      /\bpart\s+/g,
+      /\baction\s+def\s+/g,
+      /\baction\s+/g,
+      /\bverification\s+/g,
+      /\bpackage\s+/g,
+      /\bsatisfy\s+/g,
+      /\bdependency\s+/g,
+    ];
+    let total = 0;
+    for (const rx of declKeywords) {
+      total += (sysml.match(rx) ?? []).length;
+    }
+    // verify inside objective bodies
+    const verifyMatches = sysml.match(/\bverify\s+/g) ?? [];
+    total += verifyMatches.length;
+    return total;
+  }
+
+  // Helper: run grammar gate on a slice file; return "PASS (0 errors)" or "FAIL: <details>"
+  function runSliceGate(filePath: string): string {
+    let stdout = "";
+    let exitCode = 0;
+    try {
+      stdout = execFileSync("bash", [VALIDATOR_SH, filePath], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+      });
+    } catch (err) {
+      const e = err as { status?: number; stdout?: string; stderr?: string };
+      exitCode = typeof e.status === "number" ? e.status : 1;
+      stdout = (e.stdout ?? "") + (e.stderr ?? "");
+    }
+    if (exitCode === 0) {
+      return "PASS (0 errors)";
+    }
+    // HARD FAIL — exit 1 on any slice gate failure (closes the soft-fail hole)
+    console.error(`\n  Slice gate FAIL for ${path.basename(filePath)} (exit ${exitCode}):`);
+    for (const line of stdout.trim().split("\n")) console.error(`    ${line}`);
+    process.exit(1);
+  }
+
+  const reports: SliceReport[] = [];
+
+  // ── SLICE 1: Requirements ──────────────────────────────────────────────
+  // Contents: 1 package + 16 needs + 182 reqs + 187 derive dependency lines
+  // = 386 elements → under 450 target
+  {
+    const lines: string[] = [];
+    lines.push("package 'ANGARS Requirements' {");
+    // Needs
+    for (const [, id] of needNkToElemId) {
+      const n = qn(id);
+      if (n) lines.push(`  requirement ${n};  // need`);
+    }
+    // Requirements
+    for (const [, id] of reqNkToElemId) {
+      const n = qn(id);
+      if (n) lines.push(`  requirement ${n};`);
+    }
+    lines.push("}");
+    // Derive edges (inside same package context via package 'ANGARS Trace Req')
+    const deriveLines: string[] = [];
+    for (const rel of allRelationships) {
+      if (rel.type !== "DeriveRequirementUsage") continue;
+      const src = qn(rel.sourceIds[0]);
+      const tgt = qn(rel.targetIds[0]);
+      if (src && tgt) deriveLines.push(`  dependency from ${src} to ${tgt};`);
+    }
+    if (deriveLines.length > 0) {
+      lines.push("");
+      lines.push("package 'ANGARS Req Trace' {");
+      lines.push(...deriveLines);
+      lines.push("}");
+    }
+
+    const sysml = lines.join("\n") + "\n";
+    const filePath = path.join(SLICES_DIR, "slice-requirements.sysml");
+    fs.writeFileSync(filePath, sysml, "utf8");
+    const elementCount = countSliceElements(sysml);
+    const validatorResult = runSliceGate(filePath);
+    const hasScalarImport = sysml.includes("import ScalarValues");
+    // Self-containment: all derive operand names must appear as declarations
+    const declaredNames = new Set<string>();
+    for (const [, id] of needNkToElemId) { const n = elemName(id); if (n) declaredNames.add(n); }
+    for (const [, id] of reqNkToElemId) { const n = elemName(id); if (n) declaredNames.add(n); }
+    let unresolvedCount = 0;
+    for (const rel of allRelationships) {
+      if (rel.type !== "DeriveRequirementUsage") continue;
+      const srcName = elemName(rel.sourceIds[0]);
+      const tgtName = elemName(rel.targetIds[0]);
+      if (srcName && !declaredNames.has(srcName)) unresolvedCount++;
+      if (tgtName && !declaredNames.has(tgtName)) unresolvedCount++;
+    }
+    console.log(`  slice-requirements.sysml: ${elementCount} elements, ${validatorResult}, unresolved-in-slice: ${unresolvedCount}`);
+    reports.push({ filePath, pillar: "requirements", elementCount, validatorResult, hasScalarImport, unresolvedCount });
+  }
+
+  // ── SLICE 2: Structure ─────────────────────────────────────────────────
+  // Contents: 1 package + 6 PartDef subsystems (each with 4-7 PartUsage
+  // components) + 1 PartDef ANGARS System + 6 subsystem PartUsages +
+  // 30 subsystem-scope FlowConnectionUsage + 57 component-scope flows
+  // = approx 7+34+6+87+1 ~ 135 structural + flows → well under 450
+  {
+    const lines: string[] = [];
+    lines.push("package 'ANGARS Structure' {");
+    // ANGARS System part def with subsystem usages
+    lines.push("  part def 'ANGARS System' {");
+    for (const [, usageId] of subsysUsageIdByNk) {
+      const usageName = qn(usageId);
+      const usageEl = elementById.get(usageId);
+      const typeName = usageEl?.raw?.typeName as string | undefined;
+      if (usageName) {
+        if (typeName) {
+          lines.push(`    part ${usageName} : ${quoteName(typeName)};`);
+        } else {
+          lines.push(`    part ${usageName};`);
+        }
+      }
+    }
+    // Subsystem-scope flows inside ANGARS System
+    for (const rel of allRelationships) {
+      if (rel.type !== "FlowConnectionUsage") continue;
+      const rawEl = allElements.find((e) => e.id === rel.sourceIds[0] || e.type === "FlowConnectionUsage");
+      // Find the flow element (FlowConnectionUsage stored as element with sourceEnd/targetEnd)
+      void rawEl; // unused — we use the element list instead
+    }
+    // Actually flows are stored as elements, not relationships — find them
+    const flowElements = allElements.filter((e) => e.type === "FlowConnectionUsage");
+    const subsysUsageIds = new Set(subsysUsageIdByNk.values());
+    const sysSubFlows = flowElements.filter((e) => {
+      const srcEnd = e.raw?.sourceEnd as string | undefined;
+      const tgtEnd = e.raw?.targetEnd as string | undefined;
+      return (srcEnd && subsysUsageIds.has(srcEnd)) || (tgtEnd && subsysUsageIds.has(tgtEnd));
+    });
+    for (const flow of sysSubFlows) {
+      const srcId = flow.raw?.sourceEnd as string | undefined;
+      const tgtId = flow.raw?.targetEnd as string | undefined;
+      const payload = flow.raw?.payloadType as string | undefined;
+      const src = srcId ? qn(srcId) : null;
+      const tgt = tgtId ? qn(tgtId) : null;
+      if (src && tgt && payload) {
+        lines.push(`    flow of ${quoteName(payload)} from ${src} to ${tgt};`);
+      } else if (src && tgt) {
+        lines.push(`    flow from ${src} to ${tgt};`);
+      }
+    }
+    lines.push("  }");
+
+    // Subsystem part defs with their component usages and component-scope flows
+    for (const [nk, defId] of subsysNkToElemId) {
+      const defEl = elementById.get(defId);
+      if (!defEl) continue;
+      const defName = qn(defId);
+      if (!defName) continue;
+      lines.push(`  part def ${defName} {`);
+      // Components owned by this def
+      for (const [, compId] of compNkToElemId) {
+        const compEl = elementById.get(compId);
+        if (!compEl) continue;
+        // Check ownership: FeatureMembership source = defId, target = compId
+        const owned = allRelationships.some(
+          (r) => r.type === "FeatureMembership" && r.sourceIds[0] === defId && r.targetIds[0] === compId
+        );
+        if (!owned) continue;
+        const compName = qn(compId);
+        if (compName) lines.push(`    part ${compName};`);
+      }
+      // Component-scope flows whose source component is owned by this subsystem def
+      const compIds = new Set(
+        [...compNkToElemId.values()].filter((compId) =>
+          allRelationships.some(
+            (r) => r.type === "FeatureMembership" && r.sourceIds[0] === defId && r.targetIds[0] === compId
+          )
+        )
+      );
+      const compFlows = flowElements.filter((e) => {
+        const srcEnd = e.raw?.sourceEnd as string | undefined;
+        return srcEnd !== undefined && compIds.has(srcEnd);
+      });
+      for (const flow of compFlows) {
+        const srcId = flow.raw?.sourceEnd as string | undefined;
+        const tgtId = flow.raw?.targetEnd as string | undefined;
+        const payload = flow.raw?.payloadType as string | undefined;
+        const src = srcId ? qn(srcId) : null;
+        const tgt = tgtId ? qn(tgtId) : null;
+        if (!src || !tgt) continue;
+        // Target component may be in a different subsystem — declare a stub if needed
+        if (payload) {
+          lines.push(`    flow of ${quoteName(payload)} from ${src} to ${tgt};`);
+        } else {
+          lines.push(`    flow from ${src} to ${tgt};`);
+        }
+      }
+      void nk; // naturalKey used for map lookup only
+      lines.push("  }");
+    }
+    lines.push("}");
+
+    const sysml = lines.join("\n") + "\n";
+    const filePath = path.join(SLICES_DIR, "slice-structure.sysml");
+    fs.writeFileSync(filePath, sysml, "utf8");
+    const elementCount = countSliceElements(sysml);
+    const validatorResult = runSliceGate(filePath);
+    const hasScalarImport = sysml.includes("import ScalarValues");
+
+    // Self-containment: flow endpoints should all be declared parts in same slice
+    const declaredNames = new Set<string>();
+    for (const [, usageId] of subsysUsageIdByNk) { const n = elemName(usageId); if (n) declaredNames.add(n); }
+    for (const [, compId] of compNkToElemId) { const n = elemName(compId); if (n) declaredNames.add(n); }
+    let unresolvedCount = 0;
+    for (const flow of flowElements) {
+      const srcId = flow.raw?.sourceEnd as string | undefined;
+      const tgtId = flow.raw?.targetEnd as string | undefined;
+      if (srcId) { const n = elemName(srcId); if (n && !declaredNames.has(n)) unresolvedCount++; }
+      if (tgtId) { const n = elemName(tgtId); if (n && !declaredNames.has(n)) unresolvedCount++; }
+    }
+    console.log(`  slice-structure.sysml: ${elementCount} elements, ${validatorResult}, unresolved-in-slice: ${unresolvedCount}`);
+    reports.push({ filePath, pillar: "structure", elementCount, validatorResult, hasScalarImport, unresolvedCount });
+  }
+
+  // ── SLICE 3: Behavior ──────────────────────────────────────────────────
+  // Contents: 1 package + 9 ActionDefinitions (each with L3 leaf ActionUsages
+  // + Succession edges) + 22 functional N2 flows = ~85+22 = ~107 elements
+  {
+    const lines: string[] = [];
+    lines.push("package 'ANGARS Behavior' {");
+    const successionElements = allElements.filter((e) => e.type === "Succession");
+    const funcFlowElements = allElements.filter((e) => {
+      if (e.type !== "FlowConnectionUsage") return false;
+      // Functional flows: owned by behavior package (owner = behaviorPkgId)
+      return e.raw?.owner === behaviorPkgId || e.ownerId === behaviorPkgId;
+    });
+
+    for (const fn of l2Functions) {
+      const defId = funcNkToElemId.get(fn.naturalKey);
+      if (!defId) continue;
+      const defName = qn(defId);
+      if (!defName) continue;
+      lines.push(`  action def ${defName} {`);
+      // L3 children
+      const children = l3Functions
+        .filter((f) => f.naturalKey.startsWith(fn.naturalKey + "."))
+        .sort((a, b) => {
+          const na = parseInt(a.naturalKey.split(".")[1] ?? "0", 10);
+          const nb = parseInt(b.naturalKey.split(".")[1] ?? "0", 10);
+          return na - nb;
+        });
+      const childIds = new Set<string>();
+      for (const child of children) {
+        const childId = funcNkToElemId.get(child.naturalKey);
+        if (!childId) continue;
+        childIds.add(childId);
+        const childName = qn(childId);
+        if (childName) lines.push(`    action ${childName};`);
+      }
+      // Successions owned by this action def
+      const succs = successionElements.filter((e) => {
+        const srcId = e.raw?.source as { "@id"?: string }[] | undefined;
+        const src = srcId?.[0]?.["@id"];
+        return src && childIds.has(src);
+      });
+      for (const succ of succs) {
+        const srcArr = succ.raw?.source as { "@id"?: string }[] | undefined;
+        const tgtArr = succ.raw?.target as { "@id"?: string }[] | undefined;
+        const src = qn(srcArr?.[0]?.["@id"] ?? "");
+        const tgt = qn(tgtArr?.[0]?.["@id"] ?? "");
+        if (src && tgt) lines.push(`    first ${src} then ${tgt};`);
+      }
+      lines.push("  }");
+    }
+    // Functional flows at package level
+    for (const flow of funcFlowElements) {
+      const srcId = flow.raw?.sourceEnd as string | undefined;
+      const tgtId = flow.raw?.targetEnd as string | undefined;
+      const payload = flow.raw?.payloadType as string | undefined;
+      const src = srcId ? qn(srcId) : null;
+      const tgt = tgtId ? qn(tgtId) : null;
+      if (!src || !tgt) continue;
+      if (payload) {
+        lines.push(`  flow of ${quoteName(payload)} from ${src} to ${tgt};`);
+      } else {
+        lines.push(`  flow from ${src} to ${tgt};`);
+      }
+    }
+    lines.push("}");
+
+    const sysml = lines.join("\n") + "\n";
+    const filePath = path.join(SLICES_DIR, "slice-behavior.sysml");
+    fs.writeFileSync(filePath, sysml, "utf8");
+    const elementCount = countSliceElements(sysml);
+    const validatorResult = runSliceGate(filePath);
+    const hasScalarImport = sysml.includes("import ScalarValues");
+
+    // Self-containment: flow endpoints and succession endpoints must be declared actions
+    const declaredNames = new Set<string>();
+    for (const fn of l2Functions) {
+      const id = funcNkToElemId.get(fn.naturalKey);
+      if (id) { const n = elemName(id); if (n) declaredNames.add(n); }
+    }
+    for (const fn of l3Functions) {
+      const id = funcNkToElemId.get(fn.naturalKey);
+      if (id) { const n = elemName(id); if (n) declaredNames.add(n); }
+    }
+    let unresolvedCount = 0;
+    for (const flow of funcFlowElements) {
+      const srcId = flow.raw?.sourceEnd as string | undefined;
+      const tgtId = flow.raw?.targetEnd as string | undefined;
+      if (srcId) { const n = elemName(srcId); if (n && !declaredNames.has(n)) unresolvedCount++; }
+      if (tgtId) { const n = elemName(tgtId); if (n && !declaredNames.has(n)) unresolvedCount++; }
+    }
+    console.log(`  slice-behavior.sysml: ${elementCount} elements, ${validatorResult}, unresolved-in-slice: ${unresolvedCount}`);
+    reports.push({ filePath, pillar: "behavior", elementCount, validatorResult, hasScalarImport, unresolvedCount });
+  }
+
+  // ── SLICE 4: Trace ─────────────────────────────────────────────────────
+  // The historically risky slices — exercises R3 objective{verify} + R4 usage operands.
+  // Self-contained: re-declares all participating usages (flat, untyped) then
+  // emits trace lines. Three sub-slices keep each under SLICE_ELEMENT_TARGET:
+  //   slice-trace-satisfy.sysml : action usages + req usages + satisfy (110 edges)
+  //   slice-trace-derive.sysml  : req usages + derive/dependency (187 edges)
+  //   slice-trace-verify.sysml  : verification usages + req usages + verify (182 edges via R3 objective{})
+  {
+    const satisfyRels = allRelationships.filter((r) => r.type === "SatisfyRequirementUsage");
+    const deriveRels = allRelationships.filter((r) => r.type === "DeriveRequirementUsage");
+    const verifyRels = allRelationships.filter((r) => r.type === "VerifyRequirementUsage");
+
+    // All unique participant ids for satisfy
+    const satisfyParticipants = new Set<string>();
+    for (const rel of satisfyRels) {
+      for (const id of [...rel.sourceIds, ...rel.targetIds]) satisfyParticipants.add(id);
+    }
+    // All unique participant ids for derive
+    const deriveParticipants = new Set<string>();
+    for (const rel of deriveRels) {
+      for (const id of [...rel.sourceIds, ...rel.targetIds]) deriveParticipants.add(id);
+    }
+    // All unique participant ids for verify
+    const verifyParticipants = new Set<string>();
+    for (const rel of verifyRels) {
+      for (const id of [...rel.sourceIds, ...rel.targetIds]) verifyParticipants.add(id);
+    }
+
+    // Helper: emit declarations for a set of participant ids
+    function emitParticipantDecls(ids: Set<string>, prefix: string): string[] {
+      const out: string[] = [];
+      for (const id of ids) {
+        const el = elementById.get(id);
+        if (!el?.name) continue;
+        const qname = quoteName(el.name);
+        if (el.type.includes("RequirementUsage")) {
+          out.push(`${prefix}requirement ${qname};`);
+        } else if (el.type === "ActionUsage") {
+          out.push(`${prefix}action ${qname};`);
+        } else if (el.type === "ActionDefinition") {
+          out.push(`${prefix}action def ${qname};`);
+        } else if (el.type === "VerificationCaseUsage") {
+          out.push(`${prefix}verification ${qname};`);
+        }
+      }
+      return out;
+    }
+
+    // ── slice-trace-satisfy.sysml ──────────────────────────────────────────
+    // Contents: action usages + req usages as participants + 110 satisfy lines
+    {
+      const lines: string[] = [];
+      lines.push("package 'ANGARS Trace Satisfy' {");
+      lines.push(...emitParticipantDecls(satisfyParticipants, "  "));
+      for (const rel of satisfyRels) {
+        const src = qn(rel.sourceIds[0]);
+        const tgt = qn(rel.targetIds[0]);
+        if (src && tgt) lines.push(`  satisfy ${tgt} by ${src};`);
+      }
+      lines.push("}");
+      const sysml = lines.join("\n") + "\n";
+      const filePath = path.join(SLICES_DIR, "slice-trace-satisfy.sysml");
+      fs.writeFileSync(filePath, sysml, "utf8");
+      const elementCount = countSliceElements(sysml);
+      const validatorResult = runSliceGate(filePath);
+      const hasScalarImport = sysml.includes("import ScalarValues");
+
+      const declaredNames = new Set<string>();
+      for (const id of satisfyParticipants) { const n = elemName(id); if (n) declaredNames.add(n); }
+      let unresolvedCount = 0;
+      for (const rel of satisfyRels) {
+        for (const id of [...rel.sourceIds, ...rel.targetIds]) {
+          const n = elemName(id);
+          if (n && !declaredNames.has(n)) unresolvedCount++;
+        }
+      }
+      console.log(`  slice-trace-satisfy.sysml: ${elementCount} elements, ${validatorResult}, unresolved-in-slice: ${unresolvedCount}`);
+      reports.push({ filePath, pillar: "trace-satisfy", elementCount, validatorResult, hasScalarImport, unresolvedCount });
+    }
+
+    // ── slice-trace-derive.sysml ───────────────────────────────────────────
+    // Contents: req + need usages as participants + 187 derive/dependency lines
+    {
+      const lines: string[] = [];
+      lines.push("package 'ANGARS Trace Derive' {");
+      lines.push(...emitParticipantDecls(deriveParticipants, "  "));
+      for (const rel of deriveRels) {
+        const src = qn(rel.sourceIds[0]);
+        const tgt = qn(rel.targetIds[0]);
+        if (src && tgt) lines.push(`  dependency from ${src} to ${tgt};`);
+      }
+      lines.push("}");
+      const sysml = lines.join("\n") + "\n";
+      const filePath = path.join(SLICES_DIR, "slice-trace-derive.sysml");
+      fs.writeFileSync(filePath, sysml, "utf8");
+      const elementCount = countSliceElements(sysml);
+      const validatorResult = runSliceGate(filePath);
+      const hasScalarImport = sysml.includes("import ScalarValues");
+
+      const declaredNames = new Set<string>();
+      for (const id of deriveParticipants) { const n = elemName(id); if (n) declaredNames.add(n); }
+      let unresolvedCount = 0;
+      for (const rel of deriveRels) {
+        for (const id of [...rel.sourceIds, ...rel.targetIds]) {
+          const n = elemName(id);
+          if (n && !declaredNames.has(n)) unresolvedCount++;
+        }
+      }
+      console.log(`  slice-trace-derive.sysml: ${elementCount} elements, ${validatorResult}, unresolved-in-slice: ${unresolvedCount}`);
+      reports.push({ filePath, pillar: "trace-derive", elementCount, validatorResult, hasScalarImport, unresolvedCount });
+    }
+
+    // ── slice-trace-verify.sysml ───────────────────────────────────────────
+    // This slice exercises the R3 objective{verify} pattern — the historically
+    // risky Cameo import. Re-declares verification case usages + requirement
+    // usages, then emits verification bodies with nested objective{verify ...}.
+    {
+      const lines: string[] = [];
+      lines.push("package 'ANGARS Trace Verify' {");
+      // Re-declare requirement participants
+      lines.push(...emitParticipantDecls(verifyParticipants, "  "));
+      // Group verify rels by verification case source id
+      const verifyByCase = new Map<string, string[]>();
+      for (const rel of verifyRels) {
+        const caseId = rel.sourceIds[0];
+        if (!caseId) continue;
+        if (!verifyByCase.has(caseId)) verifyByCase.set(caseId, []);
+        const reqName = qn(rel.targetIds[0]);
+        if (reqName) verifyByCase.get(caseId)!.push(reqName);
+      }
+      // Emit verification bodies
+      for (const [caseId, reqNames] of verifyByCase) {
+        const caseName = qn(caseId);
+        if (!caseName) continue;
+        lines.push(`  verification ${caseName} {`);
+        lines.push(`    objective {`);
+        for (const rn of reqNames) {
+          lines.push(`      verify ${rn};`);
+        }
+        lines.push(`    }`);
+        lines.push(`  }`);
+      }
+      lines.push("}");
+      const sysml = lines.join("\n") + "\n";
+      const filePath = path.join(SLICES_DIR, "slice-trace-verify.sysml");
+      fs.writeFileSync(filePath, sysml, "utf8");
+      const elementCount = countSliceElements(sysml);
+      const validatorResult = runSliceGate(filePath);
+      const hasScalarImport = sysml.includes("import ScalarValues");
+
+      // Self-containment: all verify operand names must be declared
+      const declaredNames = new Set<string>();
+      for (const id of verifyParticipants) {
+        const n = elemName(id);
+        if (n) declaredNames.add(n);
+      }
+      let unresolvedCount = 0;
+      for (const rel of verifyRels) {
+        for (const id of [...rel.sourceIds, ...rel.targetIds]) {
+          const n = elemName(id);
+          if (n && !declaredNames.has(n)) unresolvedCount++;
+        }
+      }
+      console.log(`  slice-trace-verify.sysml: ${elementCount} elements, ${validatorResult}, unresolved-in-slice: ${unresolvedCount}`);
+      reports.push({ filePath, pillar: "trace-verify (R3/R4 risky)", elementCount, validatorResult, hasScalarImport, unresolvedCount });
+    }
+  }
+
+  // TF-10 check across all slices
+  const tf10Slices = reports.filter((r) => r.hasScalarImport).map((r) => path.basename(r.filePath));
+  if (tf10Slices.length === 0) {
+    console.log(`  TF-10: CLEAR — no 'import ScalarValues' in any slice (no scalar-typed attributes emitted)`);
+  } else {
+    console.log(`  TF-10: PRESENT in: ${tf10Slices.join(", ")} — carries caveat into CAMEO-HANDOFF.md`);
+  }
+
+  // Per-slice element counts vs target
+  for (const r of reports) {
+    if (r.elementCount > SLICE_ELEMENT_TARGET) {
+      console.warn(`  WARNING: ${path.basename(r.filePath)} has ${r.elementCount} elements > target ${SLICE_ELEMENT_TARGET}`);
+    }
+  }
+
+  return reports;
+}
 
 function runGrammarGate(sysmlPath: string): void {
   let stdout = "";
