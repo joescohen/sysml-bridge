@@ -80,10 +80,11 @@ export function relationalFindings(
   ]);
 
   // ── Defect 5: GATE02-id-duplicate ──
-  // Map-based duplicate scan over element ids; fires before orphan/coverage
-  // so ordering matches defect numbering.
+  // Map-based duplicate scan over element ids AND relationship ids (WR-04 fix).
+  // A duplicate relationship id would silently corrupt graph traversal and can
+  // mask dangling endpoints (the wrong relationship matches the endpoint lookup).
   {
-    const seen = new Map<string, string>(); // id → name
+    const seen = new Map<string, string>(); // id → label (name or type)
     for (const el of elements) {
       if (seen.has(el.id)) {
         findings.push({
@@ -95,6 +96,19 @@ export function relationalFindings(
         });
       } else {
         seen.set(el.id, el.name ?? el.id);
+      }
+    }
+    for (const rel of relationships) {
+      if (seen.has(rel.id)) {
+        findings.push({
+          elementId: rel.id,
+          ruleId: "GATE02-id-duplicate",
+          severity: "error",
+          message: `Duplicate relationship id '${rel.id}' (type: ${rel.type}).`,
+          suggestedFix: "Assign a unique id to each relationship.",
+        });
+      } else {
+        seen.set(rel.id, rel.type);
       }
     }
   }
