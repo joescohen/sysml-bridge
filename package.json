@@ -37,6 +37,6 @@
   "packageManager": "pnpm@9.15.0",
   "devDependencies": {
     "tsx": "^4.0.0",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz"
   }
 }
