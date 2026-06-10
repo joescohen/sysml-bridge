@@ -70,8 +70,12 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
           if (hasVerify) verifiedIds.add(req.id);
 
           // Backward: outgoing DeriveRequirementUsage (req → need)
-          // The req is the SOURCE of the derive edge pointing to a Need.
-          const hasBackward = rels.some((r) => BACKWARD_TYPES.has(r.type));
+          // CR-02 fix: req must be the SOURCE of the derive edge. A req that is
+          // only the TARGET of a DeriveRequirementUsage (chained derivation from
+          // a peer) has NOT backtraced to a stakeholder Need.
+          const hasBackward = rels.some(
+            (r) => BACKWARD_TYPES.has(r.type) && r.sourceIds.includes(req.id)
+          );
           if (hasBackward) backwardTracedIds.add(req.id);
         }
 

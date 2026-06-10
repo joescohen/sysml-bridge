@@ -370,3 +370,88 @@ describe("relationalFindings — seeded-defect fixture (GATE-02 ROADMAP criterio
     expect(ruleIds.has("GATE02-id-duplicate")).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// CR-02: chained-derivation direction test
+// R2 derives FROM R1 (R2 is SOURCE, R1 is TARGET). R1 must NOT be counted as
+// backtraced — being the TARGET of a derive edge is NOT the same as having an
+// outgoing derive to a stakeholder Need.
+// ---------------------------------------------------------------------------
+
+describe("relationalFindings — CR-02 backward-trace direction (chained derivation)", () => {
+  let dir: string;
+  let store: FileStore;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "sysml-cr02-"));
+    store = new FileStore(dir);
+    await store.createProject("CR-02 Direction Test");
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("CR-02: R1 that is ONLY the TARGET of a DeriveRequirementUsage still fires GATE02-unbacktraced", async () => {
+    // R1 (system req) — has no outgoing DeriveRequirementUsage
+    const r1 = await store.createElement("RequirementDefinition", "R1", {
+      provenanceSourceId: "R1-prov",
+    });
+    // R2 (system req) — derives FROM R1 (R2=SOURCE, R1=TARGET)
+    const r2 = await store.createElement("RequirementDefinition", "R2", {
+      provenanceSourceId: "R2-prov",
+    });
+    // DeriveRequirementUsage: R2 → R1 (R2 is source, R1 is target)
+    await store.createElement("DeriveRequirementUsage", "", {
+      source: [{ "@id": r2.id }],
+      target: [{ "@id": r1.id }],
+    });
+
+    const elements = await store.queryElements();
+    const relationships = await store.queryRelationships();
+    const findings = relationalFindings(elements, relationships);
+
+    // R1 is the TARGET of a derive edge — it must still fire GATE02-unbacktraced
+    // because it has no OUTGOING derive trace to a stakeholder Need.
+    const unbacktraced = findings.filter((f) => f.ruleId === "GATE02-unbacktraced");
+    const r1Unbacktraced = unbacktraced.some((f) => f.elementId === r1.id);
+    expect(r1Unbacktraced).toBe(true);
+  });
+
+  it("CR-02: R2 that is the SOURCE of a DeriveRequirementUsage to a Need does NOT fire GATE02-unbacktraced", async () => {
+    // Need (stakeholderNeed)
+    const need = await store.createElement("RequirementDefinition", "Need1", {
+      provenanceSourceId: "N1-prov",
+      stakeholderNeed: true,
+    });
+    // R2 (system req) — derives to Need (R2=SOURCE, Need=TARGET) → backtraced
+    const r2 = await store.createElement("RequirementDefinition", "R2", {
+      provenanceSourceId: "R2-prov",
+    });
+    // DeriveRequirementUsage: R2 → Need
+    await store.createElement("DeriveRequirementUsage", "", {
+      source: [{ "@id": r2.id }],
+      target: [{ "@id": need.id }],
+    });
+    // Give R2 satisfy+verify so only the backward check is in scope
+    const part = await store.createElement("PartUsage", "Part1", { provenanceSourceId: "P1" });
+    await store.createElement("SatisfyRequirementUsage", "", {
+      source: [{ "@id": part.id }],
+      target: [{ "@id": r2.id }],
+    });
+    await store.createElement("VerifyRequirementUsage", "", {
+      source: [{ "@id": part.id }],
+      target: [{ "@id": r2.id }],
+    });
+
+    const elements = await store.queryElements();
+    const relationships = await store.queryRelationships();
+    const findings = relationalFindings(elements, relationships);
+
+    // R2 is the SOURCE of a derive to a Need — must NOT fire GATE02-unbacktraced
+    const r2Unbacktraced = findings.some(
+      (f) => f.ruleId === "GATE02-unbacktraced" && f.elementId === r2.id
+    );
+    expect(r2Unbacktraced).toBe(false);
+  });
+});

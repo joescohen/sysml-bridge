@@ -48,7 +48,10 @@ export function coverageMatrix(
 
     const satisfied = touching.some((r) => FORWARD_TYPES.has(r.type));
     const verified = touching.some((r) => VERIFY_TYPES.has(r.type));
-    const derived = touching.some((r) => BACKWARD_TYPES.has(r.type));
+    // CR-02 fix: req must be the SOURCE of the derive edge (req → need).
+    const derived = touching.some(
+      (r) => BACKWARD_TYPES.has(r.type) && r.sourceIds.includes(req.id)
+    );
 
     rows.push({
       reqId: req.id,

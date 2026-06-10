@@ -209,7 +209,12 @@ export function relationalFindings(
       });
     }
 
-    const hasBackward = rels.some((r) => BACKWARD_TYPES.has(r.type));
+    // CR-02 fix: req must be the SOURCE of the derive edge (req → need).
+    // A req that is only the TARGET of a DeriveRequirementUsage (chained
+    // derivation from a peer req) has NOT backtraced to a stakeholder Need.
+    const hasBackward = rels.some(
+      (r) => BACKWARD_TYPES.has(r.type) && r.sourceIds.includes(req.id)
+    );
     if (!hasBackward) {
       findings.push({
         elementId: req.id,

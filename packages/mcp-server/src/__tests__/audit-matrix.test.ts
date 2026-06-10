@@ -130,4 +130,27 @@ describe("coverageMatrix — GATE-06", () => {
     const r1Row = rows.find((r) => r.reqId === "req-r1");
     expect(r1Row!.derived).toBe(true);
   });
+
+  it("CR-02: req that is only the TARGET of a DeriveRequirementUsage has derived=false (chained derivation)", () => {
+    // rTarget is the TARGET of a DeriveRequirementUsage from rSource.
+    // With the CR-02 fix, being a derive target does NOT count as backtraced.
+    const rTarget = makeReq("req-target", "R-Target");
+    const rSource = makeReq("req-source", "R-Source");
+    // DeriveRequirementUsage: rSource → rTarget (rTarget is the TARGET)
+    const relChained = makeRel(
+      "rel-chained",
+      "DeriveRequirementUsage",
+      ["req-source"],
+      ["req-target"]
+    );
+    const rows = coverageMatrix([rTarget, rSource], [relChained]);
+    const targetRow = rows.find((r) => r.reqId === "req-target");
+    expect(targetRow).toBeDefined();
+    // rTarget is the DERIVE TARGET — must NOT be marked as derived (no outgoing derive)
+    expect(targetRow!.derived).toBe(false);
+    // rSource is the DERIVE SOURCE — it IS marked as derived (it has an outgoing derive)
+    const sourceRow = rows.find((r) => r.reqId === "req-source");
+    expect(sourceRow).toBeDefined();
+    expect(sourceRow!.derived).toBe(true);
+  });
 });
