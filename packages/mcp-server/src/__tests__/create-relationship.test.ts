@@ -71,9 +71,9 @@ describe("create_relationship tool — type validation", () => {
   });
 
   it("accepts AllocationUsage (a valid trace relationship type)", async () => {
-    // Create two elements so the store can hold the relationship
-    const part = await store.createElement("PartDefinition", "Widget");
-    const req = await store.createElement("RequirementDefinition", "AllocReq");
+    // Create two Usage elements (R4: trace operands must be Usages, not Definitions)
+    const part = await store.createElement("PartUsage", "Widget");
+    const req = await store.createElement("RequirementUsage", "AllocReq");
 
     const result = await client.callTool({
       name: "create_relationship",
@@ -100,8 +100,9 @@ describe("create_relationship tool — type validation", () => {
     ] as const;
 
     for (const type of newTypes) {
-      const src = await store.createElement("PartDefinition", `Src_${type}`);
-      const tgt = await store.createElement("RequirementDefinition", `Tgt_${type}`);
+      // R4: trace operands must be Usages, not Definitions
+      const src = await store.createElement("PartUsage", `Src_${type}`);
+      const tgt = await store.createElement("RequirementUsage", `Tgt_${type}`);
 
       const result = await client.callTool({
         name: "create_relationship",
