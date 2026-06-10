@@ -54,6 +54,13 @@ export function buildResolutionSet(c: Extracted): Set<string> {
     "subsystems",
     "kpps",
     "behaviorDecomp",
+    // n2Interfaces: mbse-build ibd stamps provenanceSourceId = n2.id on port/flow elements.
+    // These IDs are corpus ground truth (177 entries in extracted.json) — adding them to the
+    // resolution set prevents spurious GATE03-unresolvable-provenance errors on corpus-backed
+    // IBD elements. n2 entries have no naturalKey/name, so only e.id is added (the ?? guards
+    // in the loop body already handle that). Do NOT add n2Interfaces to fidelity.ts ENTITY_KINDS:
+    // n2 entries have no name field and the drops-bucket semantics must remain unchanged.
+    "n2Interfaces",
   ] as const;
   for (const k of kinds) {
     for (const e of (c as any)[k] ?? []) {

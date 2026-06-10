@@ -178,6 +178,79 @@ describe("loadCorpusCached", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// n2Interfaces resolution set extension (Task 1 — 07-02 plan)
+//
+// buildResolutionSet must include n2 ids so that elements with
+// provenanceSourceId = n2.id do NOT fire GATE03-unresolvable-provenance.
+// n2 entries contribute only their `id` — no naturalKey/name fields.
+// ---------------------------------------------------------------------------
+
+describe("buildResolutionSet — n2Interfaces extension", () => {
+  const N2_EXTRACTED = {
+    schema_version: "1.0.0",
+    subsystem: "TestSub",
+    needs: [],
+    requirements: [],
+    functions: [],
+    components: [],
+    satisfies: [],
+    allocations: [],
+    n2Interfaces: [
+      {
+        id: "n2-abc123",
+        kind: "n2",
+        scope: "subsystem",
+        sourceId: "subsystem-aaa",
+        targetId: "subsystem-bbb",
+        sourceLabel: "Subsystem A",
+        targetLabel: "Subsystem B",
+        flow: "Data",
+        provenance: { workbook: "w.xlsx", sheet: "S", row: 0, cell: "A1" },
+      },
+    ],
+  };
+
+  // Test 1: n2 id is included in the resolution set
+  it("includes n2 entry id in the resolution set", () => {
+    const s = buildResolutionSet(N2_EXTRACTED as any);
+    expect(s.has("n2-abc123")).toBe(true);
+  });
+
+  // Test 2: existing resolution-set members are unchanged
+  it("still contains all ALLOWLIST values when n2Interfaces is present", () => {
+    const s = buildResolutionSet(N2_EXTRACTED as any);
+    for (const v of ALLOWLIST) {
+      expect(s.has(v)).toBe(true);
+    }
+  });
+
+  // Test 3: provenanceFindings produces NO GATE03-unresolvable-provenance for an
+  // element whose provenanceSourceId equals an n2 id in the resolution set.
+  it("provenanceFindings emits no error for provenanceSourceId matching an n2 id", async () => {
+    const { provenanceFindings } = await import("../audit/provenance.js");
+    const s = buildResolutionSet(N2_EXTRACTED as any);
+    const elements = [
+      {
+        id: "elem-001",
+        elementId: "elem-001",
+        type: "FlowConnectionUsage",
+        name: "myFlow",
+        shortName: null,
+        qualifiedName: null,
+        ownerId: null,
+        ownedElementIds: [],
+        raw: { provenanceSourceId: "n2-abc123" },
+      },
+    ];
+    const findings = provenanceFindings(elements as any, s);
+    const errors = findings.filter(
+      (f) => f.severity === "error" && f.ruleId === "GATE03-unresolvable-provenance"
+    );
+    expect(errors).toHaveLength(0);
+  });
+});
+
 describe("real extracted.json parse", () => {
   const EXTRACTED_PATH = path.resolve(
     __dirname,
