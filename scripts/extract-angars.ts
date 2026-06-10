@@ -280,23 +280,252 @@ satisfies.sort((a, b) => {
 });
 
 // ---------------------------------------------------------------------------
-// TODO stubs for Tasks 2-3 (functions, behaviorDecomp, kpps, subsystems, components, n2Interfaces)
+// ALL BEHAVIORS -> functions + behaviorDecomp
 // ---------------------------------------------------------------------------
 
-// These will be filled in Tasks 2-3.
-const functions: never[] = [];
-const behaviorDecomp: never[] = [];
-const kpps: never[] = [];
+const allBehaviorsCfg = WORKBOOKS[5];
+const { data: allBehaviorsData } = readSheet(
+  allBehaviorsCfg.file,
+  allBehaviorsCfg.sheet,
+  allBehaviorsCfg.headerRow
+);
+// ETL-03: assert BEFORE building entities
+// 65 raw data rows — includes one L1 row with empty ID, two near-blank rows; blankrows:false filtered
+assertCount(`${allBehaviorsCfg.file}::${allBehaviorsCfg.sheet}`, allBehaviorsData.length, allBehaviorsCfg.expected);
+
+// Filter to rows with a non-empty trimmed ID (col1) -> 62 rows
+const filteredBehaviors = allBehaviorsData.filter((row) => {
+  const id = String((row as unknown[])[allBehaviorsCfg.cols.id] ?? "").trim();
+  return id.length > 0;
+});
+
+// Assert level breakdown on filtered set
+// CORPUS ANOMALY 1: there is NO F9 row in All Behaviors — assert L2 == 8, never 9
+const l2Count = filteredBehaviors.filter(
+  (row) => String((row as unknown[])[allBehaviorsCfg.cols.level] ?? "").trim() === "L2"
+).length;
+const l3Count = filteredBehaviors.filter(
+  (row) => String((row as unknown[])[allBehaviorsCfg.cols.level] ?? "").trim() === "L3"
+).length;
+
+if (l2Count !== 8) {
+  // CORPUS ANOMALY 1: All Behaviors contains F1-F8 only at L2 (no F9 row exists in this sheet).
+  // F9 "Provide Power" is synthesized from N2 Functional Internal N2 column header below.
+  throw new Error(
+    `[ETL-03] All Behaviors L2 assertion failed: expected 8 (no F9 row — corpus anomaly), got ${l2Count}`
+  );
+}
+if (l3Count !== 54) {
+  throw new Error(
+    `[ETL-03] All Behaviors L3 assertion failed: expected 54, got ${l3Count}`
+  );
+}
+
+// behaviorDecomp (62 entries)
+const behaviorDecomp = filteredBehaviors.map((row, dataIdx) => {
+  const r = row as unknown[];
+  const fnId = String(r[allBehaviorsCfg.cols.id] ?? "").trim();
+  const level = String(r[allBehaviorsCfg.cols.level] ?? "").trim();
+  const rawName = String(r[allBehaviorsCfg.cols.name] ?? "").trim();
+  const owner = String(r[allBehaviorsCfg.cols.owner] ?? "").trim() || undefined;
+  const name = stripIdPrefix(rawName);
+
+  // For L3 rows, parentId = stableId("behaviorDecomp", top-level function id)
+  // Derived by splitting the corpus ID on the first dot: "F1.1" -> "F1"
+  // No hand-rostered mapping — pure string split on corpus id
+  const parentId =
+    level === "L3"
+      ? stableId("behaviorDecomp", fnId.split(".")[0])
+      : undefined;
+
+  return {
+    id: stableId("behaviorDecomp", fnId),
+    kind: "behaviorDecomp" as const,
+    naturalKey: fnId,
+    level,
+    name,
+    owner,
+    parentId,
+    provenance: {
+      workbook: allBehaviorsCfg.file,
+      sheet: allBehaviorsCfg.sheet,
+      row: dataIdx, // 0-based data-row index (header excluded)
+    },
+  };
+});
+
+if (behaviorDecomp.length !== 62) {
+  throw new Error(`[ETL-03] behaviorDecomp: expected 62, got ${behaviorDecomp.length}`);
+}
+
+// functions (63 entries) — same 62 rows as function entities PLUS synthesized F9
+// CORPUS ANOMALY 1: F9 "Provide Power" exists only as the Internal N2 column F9.
+// Its sender row in N2 Functional is mislabeled "F8: Provide Power" (duplicate-F8 typo).
+// Synthesize F9 from the N2 column header — provenance is N2 Functional :: Internal N2.
+const functions = [
+  ...filteredBehaviors.map((row) => {
+    const r = row as unknown[];
+    const fnId = String(r[allBehaviorsCfg.cols.id] ?? "").trim();
+    const level = String(r[allBehaviorsCfg.cols.level] ?? "").trim();
+    const rawName = String(r[allBehaviorsCfg.cols.name] ?? "").trim();
+    const owner = String(r[allBehaviorsCfg.cols.owner] ?? "").trim();
+    const name = stripIdPrefix(rawName);
+    return {
+      id: stableId("function", fnId),
+      kind: "function" as const,
+      naturalKey: fnId,
+      name,
+      level,
+      owner,
+    };
+  }),
+  // Synthesized F9 — CORPUS ANOMALY 1:
+  // Source: N2 Functional.xlsx :: Internal N2 column header "F9" (position 9).
+  // The All Behaviors sheet has NO F9 row. The position-9 sender row in Internal N2
+  // is mislabeled "F8: Provide Power" — it IS F9, evidenced by the clean column header.
+  // provenance: N2 Functional :: Internal N2 (column header F9 + position-9 row).
+  {
+    id: stableId("function", "F9"),
+    kind: "function" as const,
+    naturalKey: "F9",
+    name: "Provide Power",
+    level: "L2",
+    owner: "",
+  },
+];
+
+if (functions.length !== 63) {
+  throw new Error(`[ETL-03] functions: expected 63, got ${functions.length}`);
+}
+const f9Count = functions.filter((f) => f.naturalKey === "F9").length;
+if (f9Count !== 1) {
+  throw new Error(`[ETL-03] F9 uniqueness: expected exactly 1 F9 function, got ${f9Count}`);
+}
+
+// Sort functions and behaviorDecomp by naturalKey (localeCompare, numeric)
+functions.sort((a, b) =>
+  a.naturalKey.localeCompare(b.naturalKey, undefined, { numeric: true })
+);
+behaviorDecomp.sort((a, b) =>
+  a.naturalKey.localeCompare(b.naturalKey, undefined, { numeric: true })
+);
+
+// ---------------------------------------------------------------------------
+// KPPS (10 entries)
+// ---------------------------------------------------------------------------
+
+const kppCfg = WORKBOOKS[6];
+const { data: kppData } = readSheet(kppCfg.file, kppCfg.sheet, kppCfg.headerRow);
+assertCount(`${kppCfg.file}::${kppCfg.sheet}`, kppData.length, kppCfg.expected);
+
+const kpps = kppData.map((row, rowIdx) => {
+  const r = row as unknown[];
+  const kppId = String(r[kppCfg.cols.id] ?? "").trim();
+  const title = String(r[kppCfg.cols.title] ?? "").trim();
+  return {
+    id: stableId("kpp", kppId),
+    kind: "kpp" as const,
+    naturalKey: kppId,
+    title,
+    reqId: stableId("requirement", kppId),
+    provenance: {
+      workbook: kppCfg.file,
+      sheet: kppCfg.sheet,
+      row: rowIdx,
+    },
+  };
+});
+
+if (kpps.length !== 10) {
+  throw new Error(`[ETL-03] kpps: expected 10, got ${kpps.length}`);
+}
+
+// Cross-link assertion: every KPP id must exist as a key in the requirements Map
+// (all 10 KPP ids ARE requirement ids — throw listing any that do not resolve)
+const missingKppReqs = kpps.filter((k) => !reqMap.has(k.naturalKey));
+if (missingKppReqs.length > 0) {
+  throw new Error(
+    `[ETL-03] KPP cross-link: the following KPP ids do not resolve to requirements: ${missingKppReqs.map((k) => k.naturalKey).join(", ")}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TOP-LEVEL CROSS-CHECKS (Report workbooks — no new entities; assertions only)
+// ---------------------------------------------------------------------------
+
+// Top-Level Mission Requirements — headerRow=1, 3 data rows
+const missionCfg = WORKBOOKS[8];
+const { data: missionData } = readSheet(missionCfg.file, missionCfg.sheet, missionCfg.headerRow);
+assertCount(`${missionCfg.file}::${missionCfg.sheet}`, missionData.length, missionCfg.expected);
+
+const missingMissionReqs: string[] = [];
+for (const row of missionData) {
+  const r = row as unknown[];
+  const idToken = String(r[missionCfg.cols.id] ?? "").trim();
+  if (!reqMap.has(idToken)) {
+    missingMissionReqs.push(idToken);
+  }
+}
+if (missingMissionReqs.length > 0) {
+  throw new Error(
+    `[ETL-03] Top-Level Mission Requirements cross-check: ids not in requirements Map: ${missingMissionReqs.join(", ")}`
+  );
+}
+console.log(
+  `Top-Level Mission Requirements (${missionCfg.file}::${missionCfg.sheet}): cross-checked, no new entities`
+);
+
+// Top-Level KPP Requirements — headerRow=1, 3 data rows
+const kppTopCfg = WORKBOOKS[7];
+const { data: kppTopData } = readSheet(kppTopCfg.file, kppTopCfg.sheet, kppTopCfg.headerRow);
+assertCount(`${kppTopCfg.file}::${kppTopCfg.sheet}`, kppTopData.length, kppTopCfg.expected);
+
+const kppNaturalKeySet = new Set(kpps.map((k) => k.naturalKey));
+const missingKppTopReqs: string[] = [];
+for (const row of kppTopData) {
+  const r = row as unknown[];
+  // Name column (col1) leads with req id token: "ANGARS-2 Refueling Time"
+  const nameCell = String(r[kppTopCfg.cols.name] ?? "").trim();
+  const match = nameCell.match(/^(ANGARS-\d+)/);
+  if (!match) {
+    throw new Error(
+      `[ETL-03] Top-Level KPP Requirements: could not extract ANGARS-NNN token from "${nameCell}"`
+    );
+  }
+  const token = match[1];
+  if (!reqMap.has(token)) {
+    missingKppTopReqs.push(`${token} (not in reqMap)`);
+  }
+  if (!kppNaturalKeySet.has(token)) {
+    missingKppTopReqs.push(`${token} (not in kpps)`);
+  }
+}
+if (missingKppTopReqs.length > 0) {
+  throw new Error(
+    `[ETL-03] Top-Level KPP Requirements cross-check failed: ${missingKppTopReqs.join(", ")}`
+  );
+}
+console.log(
+  `Top-Level KPP Requirements (${kppTopCfg.file}::${kppTopCfg.sheet}): cross-checked, no new entities`
+);
+
+// ---------------------------------------------------------------------------
+// TODO stubs for Task 3 (subsystems, components, n2Interfaces)
+// ---------------------------------------------------------------------------
+
 const subsystems: never[] = [];
 const components: never[] = [];
 const n2Interfaces: never[] = [];
 
 // ---------------------------------------------------------------------------
-// Summary (Task 1 only — partial; write happens in Task 3)
+// Summary (Tasks 1-2 partial; write happens in Task 3)
 // ---------------------------------------------------------------------------
 
-console.log("=== ANGARS Full-Corpus Extraction (partial — Task 1) ===");
+console.log("=== ANGARS Full-Corpus Extraction (partial — Tasks 1-2) ===");
 console.log(`needs         : ${needs.length}`);
 console.log(`requirements  : ${requirements.length}`);
 console.log(`satisfies     : ${satisfies.length}`);
-console.log("(functions/components/subsystems/kpps/behaviorDecomp/n2Interfaces: Task 2-3 stubs)");
+console.log(`functions     : ${functions.length}`);
+console.log(`behaviorDecomp: ${behaviorDecomp.length}`);
+console.log(`kpps          : ${kpps.length}`);
+console.log("(subsystems/components/n2Interfaces: Task 3 stubs)");
