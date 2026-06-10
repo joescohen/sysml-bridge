@@ -3,6 +3,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ModelStore } from "../store.js";
 import { structuralCheck, resolveGateCorpus } from "../audit/structural.js";
 import type { Finding } from "../audit/findings.js";
+import { TRACE_TYPES } from "../audit/relational.js";
+import { SYSML_RELATIONSHIP_TYPES } from "../types/sysml-elements.js";
 
 export function registerUpdateElement(server: McpServer, smaps: ModelStore) {
   server.tool(
@@ -19,7 +21,7 @@ export function registerUpdateElement(server: McpServer, smaps: ModelStore) {
         .boolean()
         .optional()
         .describe(
-          "Skip structural Gate 1 checks — only for multi-step construction where intermediate states are incomplete"
+          "Skip GATE-05 structural checks — only for multi-step construction where intermediate states are incomplete"
         ),
     },
     async ({ element_id, updates, allow_invalid }) => {
@@ -65,6 +67,48 @@ export function registerUpdateElement(server: McpServer, smaps: ModelStore) {
           "provenanceSourceId" in updates
             ? updates.provenanceSourceId
             : existing.raw.provenanceSourceId;
+
+        // ── CR-02 guard: reject any update that would clear ALL endpoints on
+        // a relationship-kind element.  The existing structural gate (GATE02)
+        // short-circuits when both arrays are empty, so it cannot catch this
+        // class of update.  Reject early, before the gate and before the store
+        // is touched, so the store is never mutated by this path.
+        const isRelType =
+          TRACE_TYPES.has(candidateType) ||
+          (SYSML_RELATIONSHIP_TYPES as readonly string[]).includes(candidateType);
+        if (
+          isRelType &&
+          sourceIds.length === 0 &&
+          targetIds.length === 0 &&
+          (updates.source !== undefined || updates.target !== undefined)
+        ) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  {
+                    rejected: true,
+                    findings: [
+                      {
+                        elementId: element_id,
+                        ruleId: "EDIT-empty-endpoints",
+                        severity: "error",
+                        message:
+                          "Cannot clear all endpoints on a relationship element.",
+                        suggestedFix:
+                          "Provide at least one source and one target id, or retarget to valid endpoints.",
+                      },
+                    ],
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
 
         const candidate = {
           id: existing.id,
