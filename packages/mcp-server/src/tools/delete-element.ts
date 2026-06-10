@@ -13,7 +13,7 @@ export function registerDeleteElement(server: McpServer, smaps: ModelStore) {
         .boolean()
         .optional()
         .describe(
-          "Delete even if it would leave dangling relationship endpoints"
+          "Skip GATE-05 structural check — bypasses only the would-dangle guard; deletes even if it would leave dangling relationship endpoints"
         ),
     },
     async ({ element_id, allow_invalid }) => {
@@ -36,18 +36,23 @@ export function registerDeleteElement(server: McpServer, smaps: ModelStore) {
         }
 
         // ── Pre-check: would-dangle relationships ──
-        // Collect any relationship whose sourceIds OR targetIds includes element_id.
+        // Normalize to the canonical primary key (existing.id = "@id" / randomUUID).
+        // The existence check above accepts both `id` and `elementId`; on backends
+        // where they differ (e.g. SMAPS), sourceIds/targetIds hold `id` values, so
+        // the dangle check must compare against existing.id — not the caller-supplied
+        // alias — to avoid a phantom "clean" delete that bypasses the guard.
+        const canonicalId = existing.id;
         const allRelationships = await smaps.queryRelationships();
         const danglingRels = allRelationships.filter(
           (r) =>
-            r.sourceIds.includes(element_id) || r.targetIds.includes(element_id)
+            r.sourceIds.includes(canonicalId) || r.targetIds.includes(canonicalId)
         );
 
         const findings: Finding[] = danglingRels.map((r) => ({
           elementId: r.id,
           ruleId: "EDIT-delete-would-dangle",
           severity: "error" as const,
-          message: `Deleting element '${element_id}' would leave relationship '${r.type}' (${r.id}) with a dangling endpoint.`,
+          message: `Deleting element '${canonicalId}' would leave relationship '${r.type}' (${r.id}) with a dangling endpoint.`,
           suggestedFix:
             "Delete or retarget the relationship before deleting this element, or pass allow_invalid to force.",
         }));
@@ -66,7 +71,7 @@ export function registerDeleteElement(server: McpServer, smaps: ModelStore) {
         }
 
         // ── Persist ──
-        await smaps.deleteElement(element_id);
+        await smaps.deleteElement(canonicalId);
 
         // RESPONSE SHAPE: when findings existed (allow_invalid bypass),
         // include them for auditability. When zero findings, return bare result.
@@ -75,7 +80,7 @@ export function registerDeleteElement(server: McpServer, smaps: ModelStore) {
             content: [
               {
                 type: "text" as const,
-                text: JSON.stringify({ deleted: true, elementId: element_id, findings }, null, 2),
+                text: JSON.stringify({ deleted: true, elementId: canonicalId, findings }, null, 2),
               },
             ],
           };
@@ -85,7 +90,7 @@ export function registerDeleteElement(server: McpServer, smaps: ModelStore) {
           content: [
             {
               type: "text" as const,
-              text: JSON.stringify({ deleted: true, elementId: element_id }, null, 2),
+              text: JSON.stringify({ deleted: true, elementId: canonicalId }, null, 2),
             },
           ],
         };
