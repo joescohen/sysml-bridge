@@ -23,6 +23,11 @@ maturity · source links · verification caveats (flag anything not verified at 
 - [SAIC Digital Engineering Validation Tool](saic-devt.md) — 251 Cameo validation rules
   (language + style); the basis for "SAIC-style relational consistency."
 
+### Ingestion (prose / PDF corpora)
+- [SEPAL corpus engine](sepal-corpus-engine.md) — sibling project's production ingestion
+  (7-format parsers, chunk citations, RAG strategies, CUI/ITAR banner refusal); the
+  integration target for prose ingestion — do not rebuild parsing.
+
 ### Renderers / viewers (SysML v2 graphical)
 - [SysML v2 renderers](sysml-v2-renderers.md) — Cameo vs the free landscape (DeciSym fork,
   Eclipse SysON, Hollando sysml-reactflow, OMG pilot); which ingest `.sysml` and render which views.
