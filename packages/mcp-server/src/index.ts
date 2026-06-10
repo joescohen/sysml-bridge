@@ -14,6 +14,8 @@ import { registerValidateModel } from "./tools/validate-model.js";
 import { registerExportSysml } from "./tools/export-sysml.js";
 import { registerImportSysml } from "./tools/import-sysml.js";
 import { registerGetProjectState } from "./tools/get-project-state.js";
+import { registerUpdateElement } from "./tools/update-element.js";
+import { registerDeleteElement } from "./tools/delete-element.js";
 
 // ---------------------------------------------------------------------------
 // Backend selection
@@ -118,6 +120,8 @@ registerValidateModel(server, store);
 registerExportSysml(server, store);
 registerImportSysml(server, store);
 registerGetProjectState(server, store);
+registerUpdateElement(server, store);
+registerDeleteElement(server, store);
 
 async function main() {
   const transport = new StdioServerTransport();
