@@ -3,6 +3,8 @@ name: mbse-verify
 description: V&V planning — map requirements to verification methods (Test/Analysis/Inspection/Demonstration)
 ---
 
+> **Grounding rules:** read `packages/skills/skills/_shared/knowledge-preamble.md` before this skill.
+
 # MBSE Verify
 
 Plan verification and validation for all requirements.

@@ -3,6 +3,8 @@ name: mbse-trace
 description: Build satisfy, allocate (model-asserted), and verify traceability edges from cc-extracted.json. Does NOT create Need elements or DeriveRequirementUsage edges — those are owned by mbse-requirements.
 ---
 
+> **Grounding rules:** read `packages/skills/skills/_shared/knowledge-preamble.md` before this skill.
+
 # MBSE Trace
 
 Populate the three traceability hops that connect C&C requirements to

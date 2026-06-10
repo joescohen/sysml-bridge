@@ -3,6 +3,8 @@ name: mbse-validate
 description: Binary traceability gate — every C&C requirement must have satisfy AND verify edges; zero orphans, zero missing provenance, zero dangling relationships.
 ---
 
+> **Grounding rules:** read `packages/skills/skills/_shared/knowledge-preamble.md` before this skill.
+
 # MBSE Validate
 
 Run the traceability completeness gate against the live model. This is a

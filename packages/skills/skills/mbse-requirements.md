@@ -3,6 +3,8 @@ name: mbse-requirements
 description: Create RequirementDefinition and Need elements from cc-extracted.json, with provenance backpointers, and derive Need→Requirement edges.
 ---
 
+> **Grounding rules:** read `packages/skills/skills/_shared/knowledge-preamble.md` before this skill.
+
 # MBSE Requirements
 
 Populate the model with RequirementDefinition and Need elements sourced from

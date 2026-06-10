@@ -3,6 +3,8 @@ name: mbse-build
 description: Build SysML v2 structural and behavioral artifacts — BDD, IBD, and F1 activity — from cc-extracted.json using file-native MCP tools only.
 ---
 
+> **Grounding rules:** read `packages/skills/skills/_shared/knowledge-preamble.md` before this skill.
+
 # MBSE Build
 
 The construction layer. Build SysML v2 model artifacts from the

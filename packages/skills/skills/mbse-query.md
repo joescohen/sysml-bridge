@@ -3,6 +3,8 @@ name: mbse-query
 description: Answer natural-language questions grounded in actual model elements
 ---
 
+> **Grounding rules:** read `packages/skills/skills/_shared/knowledge-preamble.md` before this skill.
+
 # MBSE Query
 
 Answer natural-language questions about the model by grounding every answer in the file-native model store (queried via `query_elements` and `query_relationships`).

@@ -3,6 +3,8 @@ name: mbse-init
 description: Bootstrap a new MBSE project — stakeholder needs, system context, CONOPS sketch
 ---
 
+> **Grounding rules:** read `packages/skills/skills/_shared/knowledge-preamble.md` before this skill.
+
 # MBSE Init
 
 Initialize a new Model-Based Systems Engineering project from a natural language system description.

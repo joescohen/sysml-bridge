@@ -3,6 +3,8 @@ name: mbse-diagram
 description: Render model structure as Mermaid diagrams from the file-native model store
 ---
 
+> **Grounding rules:** read `packages/skills/skills/_shared/knowledge-preamble.md` before this skill.
+
 # MBSE Diagram
 
 Render model structure as Mermaid text diagrams sourced from the file-native MCP model store.
