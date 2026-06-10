@@ -602,6 +602,7 @@ fn route_connectors(model: &Model, context: ElementId, rel_indices: &[usize], la
 /// If a horizontal segment would cross an element, detour above or below it.
 /// Detour y-values are deconflicted against `used_h_levels` (Principle 5)
 /// and clamped to `min_route_y` to stay below the frame tab (Principle 1).
+#[allow(clippy::too_many_arguments)]
 fn build_obstacle_aware_route(
     sp: Pos2,
     sp_stub: Pos2,

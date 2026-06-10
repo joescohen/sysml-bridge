@@ -4,6 +4,7 @@ use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 
 use egui::{Color32, Context, Pos2, Rect, Vec2};
+use serde::Deserialize;
 use sysmlv2_gui::model::parse::parse_sysml;
 use sysmlv2_gui::model::{ElementId, ElementKind, Metatype, Model, RelationshipKind};
 use sysmlv2_gui::render::layout::{self, ConnectorRoute};
@@ -24,7 +25,7 @@ const EXPORT_FEATURE_BOTTOM_PADDING: f32 = 8.0;
 const EXPORT_COLUMN_GAP: f32 = 34.0;
 const EXPORT_ROW_GAP: f32 = 22.0;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum ViewKind {
     General,
     Interconnection,
@@ -35,96 +36,160 @@ enum ViewKind {
     Traceability,
 }
 
-#[derive(Clone, Copy)]
+/// Owned view spec — either from the default list or parsed from a --spec JSON file.
+#[derive(Clone, Debug)]
 struct ViewSpec {
-    file_stem: &'static str,
-    context_name: &'static str,
-    frame_label: &'static str,
+    file_stem: String,
+    context_name: String,
+    frame_label: String,
     kind: ViewKind,
 }
 
-const VIEW_SPECS: &[ViewSpec] = &[
-    ViewSpec {
-        file_stem: "angars-ibd-subsystem",
-        context_name: "C&C Subsystem",
-        frame_label: "interconnection",
-        kind: ViewKind::Interconnection,
-    },
-    ViewSpec {
-        file_stem: "angars-general-subsystem",
-        context_name: "C&C Subsystem",
-        frame_label: "general",
-        kind: ViewKind::General,
-    },
-    ViewSpec {
-        file_stem: "angars-activity-operations",
-        context_name: "C&C Operations",
-        frame_label: "action",
-        kind: ViewKind::ActionFlow,
-    },
-    ViewSpec {
-        file_stem: "activity-control-flow",
-        context_name: "Refueling Request Handling",
-        frame_label: "action",
-        kind: ViewKind::ActionFlow,
-    },
-    ViewSpec {
-        file_stem: "state-machine",
-        context_name: "C&C Mode",
-        frame_label: "state",
-        kind: ViewKind::StateTransition,
-    },
-    ViewSpec {
-        file_stem: "bdd-structure",
-        context_name: "C&C Architecture",
-        frame_label: "bdd",
-        kind: ViewKind::Bdd,
-    },
-    ViewSpec {
-        file_stem: "requirements",
-        context_name: "C&C Requirements",
-        frame_label: "requirements",
-        kind: ViewKind::Requirements,
-    },
-    ViewSpec {
-        file_stem: "traceability",
-        context_name: "C&C Trace",
-        frame_label: "traceability",
-        kind: ViewKind::Traceability,
-    },
-    // Full ANGARS model (context = the C&C Architecture package).
-    ViewSpec {
-        file_stem: "angars-bdd",
-        context_name: "C&C Architecture",
-        frame_label: "bdd",
-        kind: ViewKind::Bdd,
-    },
-    ViewSpec {
-        file_stem: "angars-requirements",
-        context_name: "C&C Architecture",
-        frame_label: "requirements",
-        kind: ViewKind::Requirements,
-    },
-    ViewSpec {
-        file_stem: "angars-traceability",
-        context_name: "C&C Architecture",
-        frame_label: "traceability",
-        kind: ViewKind::Traceability,
-    },
-];
+/// JSON entry in a --spec file.  All fields are strings; `kind` is
+/// resolved by `parse_kind`.
+#[derive(Deserialize)]
+struct SpecEntry {
+    file_stem: String,
+    context_name: String,
+    frame_label: String,
+    kind: String,
+}
+
+/// Map a kind string to `ViewKind`.  Returns `Err` for unknown strings.
+fn parse_kind(s: &str) -> Result<ViewKind, String> {
+    match s {
+        "general" => Ok(ViewKind::General),
+        "interconnection" => Ok(ViewKind::Interconnection),
+        "action" => Ok(ViewKind::ActionFlow),
+        "state" => Ok(ViewKind::StateTransition),
+        "bdd" => Ok(ViewKind::Bdd),
+        "requirements" => Ok(ViewKind::Requirements),
+        "traceability" => Ok(ViewKind::Traceability),
+        other => Err(format!("unknown view kind: {other:?} (expected one of: general, interconnection, action, state, bdd, requirements, traceability)")),
+    }
+}
+
+/// Load a `--spec` JSON file and convert to `Vec<ViewSpec>`.
+fn load_spec_file(path: &str) -> Result<Vec<ViewSpec>, Box<dyn std::error::Error>> {
+    let content = fs::read_to_string(path)
+        .map_err(|e| format!("cannot read spec file {path:?}: {e}"))?;
+    let entries: Vec<SpecEntry> = serde_json::from_str(&content)
+        .map_err(|e| format!("malformed JSON in spec file {path:?}: {e}"))?;
+    entries
+        .into_iter()
+        .map(|e| {
+            let kind = parse_kind(&e.kind)?;
+            Ok(ViewSpec {
+                file_stem: e.file_stem,
+                context_name: e.context_name,
+                frame_label: e.frame_label,
+                kind,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()
+        .map_err(Into::into)
+}
+
+/// Default view specs (preserves the original 11 entries byte-for-byte).
+fn default_view_specs() -> Vec<ViewSpec> {
+    vec![
+        ViewSpec {
+            file_stem: "angars-ibd-subsystem".into(),
+            context_name: "C&C Subsystem".into(),
+            frame_label: "interconnection".into(),
+            kind: ViewKind::Interconnection,
+        },
+        ViewSpec {
+            file_stem: "angars-general-subsystem".into(),
+            context_name: "C&C Subsystem".into(),
+            frame_label: "general".into(),
+            kind: ViewKind::General,
+        },
+        ViewSpec {
+            file_stem: "angars-activity-operations".into(),
+            context_name: "C&C Operations".into(),
+            frame_label: "action".into(),
+            kind: ViewKind::ActionFlow,
+        },
+        ViewSpec {
+            file_stem: "activity-control-flow".into(),
+            context_name: "Refueling Request Handling".into(),
+            frame_label: "action".into(),
+            kind: ViewKind::ActionFlow,
+        },
+        ViewSpec {
+            file_stem: "state-machine".into(),
+            context_name: "C&C Mode".into(),
+            frame_label: "state".into(),
+            kind: ViewKind::StateTransition,
+        },
+        ViewSpec {
+            file_stem: "bdd-structure".into(),
+            context_name: "C&C Architecture".into(),
+            frame_label: "bdd".into(),
+            kind: ViewKind::Bdd,
+        },
+        ViewSpec {
+            file_stem: "requirements".into(),
+            context_name: "C&C Requirements".into(),
+            frame_label: "requirements".into(),
+            kind: ViewKind::Requirements,
+        },
+        ViewSpec {
+            file_stem: "traceability".into(),
+            context_name: "C&C Trace".into(),
+            frame_label: "traceability".into(),
+            kind: ViewKind::Traceability,
+        },
+        // Full ANGARS model (context = the C&C Architecture package).
+        ViewSpec {
+            file_stem: "angars-bdd".into(),
+            context_name: "C&C Architecture".into(),
+            frame_label: "bdd".into(),
+            kind: ViewKind::Bdd,
+        },
+        ViewSpec {
+            file_stem: "angars-requirements".into(),
+            context_name: "C&C Architecture".into(),
+            frame_label: "requirements".into(),
+            kind: ViewKind::Requirements,
+        },
+        ViewSpec {
+            file_stem: "angars-traceability".into(),
+            context_name: "C&C Architecture".into(),
+            frame_label: "traceability".into(),
+            kind: ViewKind::Traceability,
+        },
+    ]
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let input = args
         .next()
-        .ok_or("usage: export_figures <input.sysml> <output-dir>")?;
+        .ok_or("usage: export_figures <input.sysml> <output-dir> [--spec views.json]")?;
     let output_dir = args
         .next()
-        .ok_or("usage: export_figures <input.sysml> <output-dir>")?;
+        .ok_or("usage: export_figures <input.sysml> <output-dir> [--spec views.json]")?;
 
-    if args.next().is_some() {
-        return Err("usage: export_figures <input.sysml> <output-dir>".into());
+    // Parse optional --spec flag.
+    let mut spec_path: Option<String> = None;
+    let mut rest = args.peekable();
+    while let Some(arg) = rest.next() {
+        if arg == "--spec" {
+            spec_path = Some(
+                rest.next()
+                    .ok_or("--spec requires a path argument")?,
+            );
+        } else {
+            return Err(format!("unexpected argument: {arg:?}").into());
+        }
     }
+
+    let specs = match spec_path {
+        Some(ref path) => load_spec_file(path)?,
+        None => default_view_specs(),
+    };
 
     let source = fs::read_to_string(&input)?;
     let model = parse_sysml(&source)?;
@@ -132,11 +197,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output_dir = PathBuf::from(output_dir);
     fs::create_dir_all(&output_dir)?;
 
-    for spec in VIEW_SPECS {
+    let mut exported = 0usize;
+    let mut skip_reasons: Vec<String> = Vec::new();
+
+    for spec in &specs {
         match export_view(&model, &egui_ctx, spec, &output_dir) {
-            Ok(output_path) => println!("{}", output_path.display()),
-            Err(e) => eprintln!("skip {}: {}", spec.file_stem, e),
+            Ok(output_path) => {
+                println!("{}", output_path.display());
+                exported += 1;
+            }
+            Err(e) => {
+                let reason = format!("skip {}: {}", spec.file_stem, e);
+                eprintln!("{reason}");
+                skip_reasons.push(reason);
+            }
         }
+    }
+
+    if exported == 0 {
+        eprintln!("error: no views were exported (all {} spec(s) skipped)", specs.len());
+        for reason in &skip_reasons {
+            eprintln!("  {reason}");
+        }
+        std::process::exit(1);
     }
 
     Ok(())
@@ -148,13 +231,13 @@ fn export_view(
     spec: &ViewSpec,
     output_dir: &Path,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let context_id = find_named_element(model, spec.context_name)
+    let context_id = find_named_element(model, &spec.context_name)
         .ok_or_else(|| format!("missing element '{}'", spec.context_name))?;
 
     let layout = match spec.kind {
         ViewKind::General => build_general_layout(model, context_id),
         ViewKind::Interconnection => {
-            build_interconnection_layout(model, context_id, spec.context_name)
+            build_interconnection_layout(model, context_id, &spec.context_name)
                 .unwrap_or_else(|| layout::compute_layout(model, context_id, egui_ctx))
         }
         ViewKind::ActionFlow => build_flow_layout(
@@ -2297,5 +2380,60 @@ impl PdfFile {
         let _ = writeln!(output, "{xref_offset}");
         output.extend(b"%%EOF\n");
         output
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test 1: parsing a valid JSON spec array yields the correct ViewSpec.
+    #[test]
+    fn spec_parse_single_entry() {
+        let json = r#"[{"file_stem":"x","context_name":"P","frame_label":"bdd","kind":"bdd"}]"#;
+        let entries: Vec<SpecEntry> = serde_json::from_str(json).expect("should parse");
+        assert_eq!(entries.len(), 1);
+        let kind = parse_kind(&entries[0].kind).expect("bdd should map");
+        assert!(matches!(kind, ViewKind::Bdd));
+        assert_eq!(entries[0].file_stem, "x");
+        assert_eq!(entries[0].context_name, "P");
+    }
+
+    /// Test 2: every kind string round-trips to the corresponding ViewKind;
+    /// an unknown kind string returns Err, not a panic.
+    #[test]
+    fn kind_round_trip() {
+        let cases = [
+            ("general", matches!(parse_kind("general"), Ok(ViewKind::General))),
+            ("interconnection", matches!(parse_kind("interconnection"), Ok(ViewKind::Interconnection))),
+            ("action", matches!(parse_kind("action"), Ok(ViewKind::ActionFlow))),
+            ("state", matches!(parse_kind("state"), Ok(ViewKind::StateTransition))),
+            ("bdd", matches!(parse_kind("bdd"), Ok(ViewKind::Bdd))),
+            ("requirements", matches!(parse_kind("requirements"), Ok(ViewKind::Requirements))),
+            ("traceability", matches!(parse_kind("traceability"), Ok(ViewKind::Traceability))),
+        ];
+        for (name, ok) in cases {
+            assert!(ok, "kind {name:?} should parse successfully");
+        }
+        let err = parse_kind("unknown_kind");
+        assert!(err.is_err(), "unknown kind should return Err, got {err:?}");
+    }
+
+    /// Test 3: malformed JSON returns Err whose message names the spec path.
+    #[test]
+    fn malformed_spec_file_names_path() {
+        // Write a temp file with invalid JSON.
+        let dir = std::env::temp_dir();
+        let path = dir.join("bad-spec-07-01-test.json");
+        std::fs::write(&path, b"not json at all").expect("write temp file");
+        let result = load_spec_file(path.to_str().unwrap());
+        assert!(result.is_err(), "malformed JSON should return Err");
+        let err_msg = result.err().unwrap().to_string();
+        // Error message must mention the spec path.
+        assert!(
+            err_msg.contains("bad-spec-07-01-test.json"),
+            "error should name the spec path, got: {err_msg:?}"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 }

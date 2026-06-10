@@ -77,7 +77,7 @@ pub fn show_search_bar(ui: &mut egui::Ui, state: &mut SearchState, model: &Model
     }
 
     let available_width = ui.available_width();
-    let bar_width = (available_width * 0.4).min(400.0).max(200.0);
+    let bar_width = (available_width * 0.4).clamp(200.0, 400.0);
 
     egui::Area::new(egui::Id::new("search_bar"))
         .fixed_pos(egui::pos2(

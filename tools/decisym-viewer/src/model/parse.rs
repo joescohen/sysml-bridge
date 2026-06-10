@@ -507,14 +507,13 @@ impl<'a> Parser<'a> {
         }
 
         // Check for `from` keyword or direct source
-        let source;
-        if self.peek_word() == "from" {
+        let source = if self.peek_word() == "from" {
             self.read_word();
             self.skip_whitespace();
-            source = self.read_dotted_name();
+            self.read_dotted_name()
         } else {
-            source = self.read_dotted_name();
-        }
+            self.read_dotted_name()
+        };
 
         self.skip_whitespace();
         if self.peek_word() == "to" {

@@ -198,6 +198,7 @@ pub fn hit_test(layout: &Layout, id: ElementId, click_pos: Pos2) -> bool {
 
 /// Level-of-detail rendering for overview/zoom contexts.
 /// Selects rendering based on element's screen-space height.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_element_lod(
     painter: &egui::Painter,
     model: &Model,
@@ -350,6 +351,7 @@ fn draw_label(
 }
 
 /// Render element as compact SysML box (keyword header + name, no compartments).
+#[allow(clippy::too_many_arguments)]
 fn draw_element_compact(
     painter: &egui::Painter,
     model: &Model,
@@ -440,6 +442,7 @@ fn draw_element_compact(
 }
 
 /// Draw element with opacity applied (for filtered state).
+#[allow(clippy::too_many_arguments)]
 fn draw_element_with_opacity(
     painter: &egui::Painter,
     model: &Model,
@@ -469,6 +472,7 @@ fn apply_opacity(color: Color32, opacity: u8) -> Color32 {
 }
 
 /// Draw an overview package node (larger, with child count).
+#[allow(clippy::too_many_arguments)]
 pub fn draw_overview_package(
     painter: &egui::Painter,
     model: &Model,

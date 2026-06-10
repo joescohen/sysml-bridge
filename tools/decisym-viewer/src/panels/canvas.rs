@@ -497,6 +497,7 @@ pub fn show(
 }
 
 /// Draw overview or children-of view (packages/elements as nodes).
+#[allow(clippy::too_many_arguments)]
 fn draw_overview_view(
     _ui: &mut egui::Ui,
     painter: &egui::Painter,
@@ -542,6 +543,7 @@ fn draw_overview_view(
 }
 
 /// Draw the interconnection view (SysML connectors between parts).
+#[allow(clippy::too_many_arguments)]
 fn draw_interconnection(
     _ui: &mut egui::Ui,
     painter: &egui::Painter,
