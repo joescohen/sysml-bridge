@@ -32,10 +32,15 @@ export const TRACE_TYPES = new Set([
   "TraceRequirementUsage",
 ]);
 
-// Subset type sets (copied verbatim from validate-model.ts lines 39–41)
-const FORWARD_TYPES = new Set(["SatisfyRequirementUsage", "AllocationUsage"]);
-const VERIFY_TYPES = new Set(["VerifyRequirementUsage", "RequirementVerificationMembership"]);
-const BACKWARD_TYPES = new Set(["DeriveRequirementUsage"]);
+/** Forward trace relationship types (satisfy / allocate). Single-source export. */
+export const FORWARD_TYPES = new Set(["SatisfyRequirementUsage", "AllocationUsage"]);
+/** Verify relationship types. Single-source export. */
+export const VERIFY_TYPES = new Set([
+  "VerifyRequirementUsage",
+  "RequirementVerificationMembership",
+]);
+/** Backward (derive) trace relationship types. Single-source export. */
+export const BACKWARD_TYPES = new Set(["DeriveRequirementUsage"]);
 
 const ORPHAN_TRACE_TYPES = new Set([
   "SatisfyRequirementUsage",

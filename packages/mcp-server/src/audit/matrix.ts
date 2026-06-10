@@ -8,7 +8,7 @@
  * align 1-to-1 with the RequirementDefinition nodes that the validate_model
  * tool has always counted; this is noted here for future extension.
  *
- * Edge-type sets copied verbatim from validate-model.ts lines 39–41 (research OQ6):
+ * Edge-type sets imported from relational.ts (single source of truth — WR-02 fix):
  *   FORWARD_TYPES  = SatisfyRequirementUsage | AllocationUsage
  *   VERIFY_TYPES   = VerifyRequirementUsage | RequirementVerificationMembership
  *   BACKWARD_TYPES = DeriveRequirementUsage
@@ -19,11 +19,7 @@
 
 import type { SysmlElement, SysmlRelationship } from "../types/sysml-elements.js";
 import type { MatrixRow } from "./findings.js";
-
-// Copy verbatim from validate-model.ts lines 39–41
-const FORWARD_TYPES = new Set(["SatisfyRequirementUsage", "AllocationUsage"]);
-const VERIFY_TYPES = new Set(["VerifyRequirementUsage", "RequirementVerificationMembership"]);
-const BACKWARD_TYPES = new Set(["DeriveRequirementUsage"]);
+import { FORWARD_TYPES, VERIFY_TYPES, BACKWARD_TYPES } from "./relational.js";
 
 /**
  * Build the GATE-06 requirement coverage matrix.

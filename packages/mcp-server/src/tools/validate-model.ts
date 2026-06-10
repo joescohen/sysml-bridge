@@ -5,6 +5,7 @@ import type { ModelStore } from "../store.js";
 import { audit } from "../audit/index.js";
 import { loadCorpusCached } from "../audit/corpus.js";
 import { writeReports } from "../audit/report.js";
+import { FORWARD_TYPES, VERIFY_TYPES, BACKWARD_TYPES } from "../audit/relational.js";
 
 export function registerValidateModel(server: McpServer, smaps: ModelStore) {
   server.tool(
@@ -51,10 +52,6 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
         // System Requirements = RequirementDefinition WITHOUT raw.stakeholderNeed.
         const needs = requirements.filter((r) => r.raw.stakeholderNeed === true);
         const systemReqs = requirements.filter((r) => r.raw.stakeholderNeed !== true);
-
-        const FORWARD_TYPES = new Set(["SatisfyRequirementUsage", "AllocationUsage"]);
-        const VERIFY_TYPES = new Set(["VerifyRequirementUsage", "RequirementVerificationMembership"]);
-        const BACKWARD_TYPES = new Set(["DeriveRequirementUsage"]);
 
         // ── System Requirement traceability ──
         const forwardTracedIds = new Set<string>();
