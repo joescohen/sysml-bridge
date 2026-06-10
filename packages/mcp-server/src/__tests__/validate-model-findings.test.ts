@@ -475,10 +475,13 @@ describe("validate_model — corpus unavailable degrades gracefully", () => {
   });
 
   it("corpus unavailable: findings contains GATE03-corpus-unavailable warning", async () => {
-    // Point corpus_path to a definitely non-existent file
+    // Point corpus_path to a non-existent file inside the project root.
+    // (CR-01 security guard allows in-root paths; graceful degradation handles missing file.)
     const result = await client.callTool({
       name: "validate_model",
-      arguments: { corpus_path: "/tmp/does-not-exist-xyzzy/extracted.json" },
+      arguments: {
+        corpus_path: path.join(process.cwd(), "examples/angars/model/does-not-exist-xyzzy.json"),
+      },
     });
     expect(result.isError).toBeFalsy();
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
@@ -494,7 +497,9 @@ describe("validate_model — corpus unavailable degrades gracefully", () => {
   it("corpus unavailable: legacy coverage keys still present", async () => {
     const result = await client.callTool({
       name: "validate_model",
-      arguments: { corpus_path: "/tmp/does-not-exist-xyzzy/extracted.json" },
+      arguments: {
+        corpus_path: path.join(process.cwd(), "examples/angars/model/does-not-exist-xyzzy.json"),
+      },
     });
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     const parsed = JSON.parse(text) as FindingsResult;
@@ -508,7 +513,9 @@ describe("validate_model — corpus unavailable degrades gracefully", () => {
   it("corpus unavailable: fidelity has empty drops/fabrications/nearMatches", async () => {
     const result = await client.callTool({
       name: "validate_model",
-      arguments: { corpus_path: "/tmp/does-not-exist-xyzzy/extracted.json" },
+      arguments: {
+        corpus_path: path.join(process.cwd(), "examples/angars/model/does-not-exist-xyzzy.json"),
+      },
     });
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     const parsed = JSON.parse(text) as FindingsResult;
@@ -516,5 +523,38 @@ describe("validate_model — corpus unavailable degrades gracefully", () => {
     expect(parsed.fidelity.drops).toHaveLength(0);
     expect(parsed.fidelity.fabrications).toHaveLength(0);
     expect(parsed.fidelity.nearMatches).toHaveLength(0);
+  });
+
+  // CR-01: path traversal rejection tests
+  it("CR-01: corpus_path with path traversal (../../etc/passwd) is rejected as isError", async () => {
+    const result = await client.callTool({
+      name: "validate_model",
+      arguments: { corpus_path: "../../etc/passwd" },
+    });
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    expect(text).toMatch(/outside the project root|rejected for security/i);
+  });
+
+  it("CR-01: corpus_path pointing to /etc/passwd is rejected as isError", async () => {
+    const result = await client.callTool({
+      name: "validate_model",
+      arguments: { corpus_path: "/etc/passwd" },
+    });
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    expect(text).toMatch(/outside the project root|rejected for security/i);
+  });
+
+  it("CR-01: corpus_path without .json extension is rejected as isError", async () => {
+    const result = await client.callTool({
+      name: "validate_model",
+      arguments: {
+        corpus_path: path.join(process.cwd(), "examples/angars/model/extracted.sysml"),
+      },
+    });
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    expect(text).toMatch(/\.json/i);
   });
 });

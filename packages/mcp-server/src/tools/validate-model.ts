@@ -7,6 +7,33 @@ import { loadCorpusCached } from "../audit/corpus.js";
 import { writeReports } from "../audit/report.js";
 import { FORWARD_TYPES, VERIFY_TYPES, BACKWARD_TYPES } from "../audit/relational.js";
 
+// ---------------------------------------------------------------------------
+// CR-01: corpus_path containment guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a caller-supplied corpus path and assert it stays inside the project
+ * root and ends with `.json`.
+ *
+ * Throws an Error (caught by the tool handler → isError response) when either
+ * condition fails. The SYSML_BRIDGE_CORPUS_PATH env var is set at server
+ * startup (trusted operator) and is NOT subject to this check.
+ */
+function assertCorpusPathAllowed(rawPath: string): string {
+  const resolved = path.resolve(rawPath);
+  const root = process.cwd();
+  const rootPrefix = root.endsWith(path.sep) ? root : root + path.sep;
+  if (resolved !== root && !resolved.startsWith(rootPrefix)) {
+    throw new Error(
+      `corpus_path '${rawPath}' resolves outside the project root — rejected for security.`
+    );
+  }
+  if (!resolved.endsWith(".json")) {
+    throw new Error(`corpus_path '${rawPath}' must refer to a .json file.`);
+  }
+  return resolved;
+}
+
 export function registerValidateModel(server: McpServer, smaps: ModelStore) {
   server.tool(
     "validate_model",
@@ -224,10 +251,12 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
 
         // ── GATE-01 audit: findings / fidelity / matrix (additive) ──────────
         // Legacy envelope above stays verbatim; these are appended as new keys.
-        const corpusPath =
-          corpus_path ??
-          process.env.SYSML_BRIDGE_CORPUS_PATH ??
-          path.join(process.cwd(), "examples/angars/model/extracted.json");
+        // CR-01: caller-supplied corpus_path is sandboxed to the project root.
+        // SYSML_BRIDGE_CORPUS_PATH is set by the operator at server startup (trusted).
+        const corpusPath = corpus_path
+          ? assertCorpusPathAllowed(corpus_path)
+          : (process.env.SYSML_BRIDGE_CORPUS_PATH ??
+              path.join(process.cwd(), "examples/angars/model/extracted.json"));
         const corpus = await loadCorpusCached(corpusPath);
 
         // Gather all elements for the audit (allRels already fetched above).
