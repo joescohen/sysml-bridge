@@ -14,6 +14,8 @@
  *   GATE03-unresolvable-provenance      error   — provenanceSourceId not in corpus resolution set
  *   GATE03-model-asserted               info    — element uses "model-asserted" provenance (allocate convention)
  *   GATE03-corpus-unavailable           warning — extracted.json could not be loaded; provenance checks skipped
+ *   PROSE-suspect-source                warning — prose entry cites a doc whose hash no longer matches the
+ *                                                 ingest manifest; entry still composes but should be re-reviewed
  */
 
 // No runtime imports — pure type + const file, same as sysml-elements.ts

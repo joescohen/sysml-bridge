@@ -23,31 +23,51 @@
  */
 
 import type { SysmlElement, SysmlRelationship } from "../types/sysml-elements.js";
-import type { Extracted } from "@sysml-bridge/ir";
+import type { Extracted, ProseComposedIR } from "@sysml-bridge/ir";
 import type { AuditResult, Finding } from "./findings.js";
 import { relationalFindings } from "./relational.js";
 import { provenanceFindings } from "./provenance.js";
 import { fidelityReport } from "./fidelity.js";
 import { coverageMatrix } from "./matrix.js";
-import { buildResolutionSet } from "./corpus.js";
+import { buildResolutionSet, buildResolutionSetFromComposed } from "./corpus.js";
 
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
 /**
+ * Type guard: is the corpus argument a ProseComposedIR?
+ */
+function isProseComposedIR(
+  corpus: Extracted | ProseComposedIR | null
+): corpus is ProseComposedIR {
+  return (
+    corpus !== null &&
+    typeof corpus === "object" &&
+    "extracted" in corpus &&
+    "proseEntries" in corpus &&
+    "approvedProseIds" in corpus
+  );
+}
+
+/**
  * Assemble a complete AuditResult from model snapshots.
  *
  * @param elements      All SysML elements (from store.queryElements())
  * @param relationships All relationships (from store.queryRelationships())
- * @param corpus        Loaded + validated corpus, or null if unavailable.
- *                      When null: GATE03-corpus-unavailable warning is emitted;
- *                      provenance existence checks and fidelity are skipped.
+ * @param corpus        One of:
+ *                        - ProseComposedIR: two-layer IR with prose entries
+ *                        - Extracted: plain corpus (backward-compat)
+ *                        - null: corpus unavailable; GATE03-corpus-unavailable warning emitted
+ *
+ * When a ProseComposedIR is provided, approved prose ids are added to the
+ * GATE03 resolution set (Gate-1 prose-id extension), and PROSE-suspect-source
+ * warnings are emitted for any suspect entries (C9).
  */
 export function audit(
   elements: SysmlElement[],
   relationships: SysmlRelationship[],
-  corpus: Extracted | null
+  corpus: Extracted | ProseComposedIR | null
 ): AuditResult {
   // ── Always-on rules ──────────────────────────────────────────────────────
   const findings: Finding[] = relationalFindings(elements, relationships);
@@ -57,9 +77,38 @@ export function audit(
   let fidelity: AuditResult["fidelity"];
 
   if (corpus !== null) {
-    const resolutionSet = buildResolutionSet(corpus);
+    // Resolve which Extracted corpus and which resolution set to use
+    let extracted: Extracted;
+    let resolutionSet: ReturnType<typeof buildResolutionSet>;
+
+    if (isProseComposedIR(corpus)) {
+      extracted = corpus.extracted;
+      resolutionSet = buildResolutionSetFromComposed(corpus);
+
+      // ── PROSE-suspect-source (C9): warn on suspect entries ────────────
+      for (const entry of corpus.proseEntries) {
+        if (entry.status === "suspect") {
+          findings.push({
+            elementId: entry.id,
+            ruleId: "PROSE-suspect-source",
+            severity: "warning",
+            message: `Prose entry '${entry.id}' (${entry.kind}) has status:'suspect' — ` +
+              `citation.docSha256 no longer matches the ingest manifest for doc '${entry.citation.docId}'. ` +
+              `Re-review required.`,
+            suggestedFix:
+              "Re-ingest the source document and re-approve the prose extraction, or " +
+              "update citation.docSha256 to match the current document hash.",
+          });
+        }
+      }
+    } else {
+      // Plain Extracted corpus — backward-compat path
+      extracted = corpus;
+      resolutionSet = buildResolutionSet(extracted);
+    }
+
     findings.push(...provenanceFindings(elements, resolutionSet));
-    fidelity = fidelityReport(elements, corpus, resolutionSet);
+    fidelity = fidelityReport(elements, extracted, resolutionSet);
   } else {
     // Corpus unavailable — emit degradation finding and return empty fidelity
     findings.push({
@@ -82,4 +131,4 @@ export function audit(
 // ---------------------------------------------------------------------------
 
 export type { AuditResult, Finding, FidelityRow, NearMatch, MatrixRow } from "./findings.js";
-export { loadCorpusCached, buildResolutionSet, clearCorpusCache } from "./corpus.js";
+export { loadCorpusCached, buildResolutionSet, buildResolutionSetFromComposed, clearCorpusCache } from "./corpus.js";
