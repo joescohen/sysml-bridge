@@ -43,7 +43,7 @@ import {
 } from "../packages/inference/src/engine.js";
 import { AnthropicInferenceProvider } from "../packages/inference/src/inference-provider.js";
 import type { InferenceProvider } from "../packages/inference/src/inference-provider.js";
-import type { RelationFamily, ProposalOutput, ContextBundle } from "../packages/inference/src/types.js";
+import type { ProposalOutput } from "../packages/inference/src/types.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -216,12 +216,11 @@ async function main(): Promise<void> {
   }
 
   // Per-family stats table
-  process.stderr.write(`\nFamily          │ Generated │ RejType │ Proposed │ DrpUnprem │ AutoRej │ Debate │ Queued\n`);
-  process.stderr.write(`────────────────┼───────────┼─────────┼──────────┼───────────┼─────────┼────────┼───────\n`);
-  const families: RelationFamily[] = ["allocation", "modeMembership", "flowTyping", "controlJoin"];
+  process.stderr.write(`\nFamily          │ Generated │ RejUnbnd │ RejCap │ RejType │ Proposed │ DrpUnprem │ AutoRej │ Debate │ Queued\n`);
+  process.stderr.write(`────────────────┼───────────┼──────────┼────────┼─────────┼──────────┼───────────┼─────────┼────────┼───────\n`);
   for (const st of result.stats) {
     const f = st.family.padEnd(15);
-    process.stderr.write(`${f} │ ${String(st.generated).padStart(9)} │ ${String(st.rejectedType).padStart(7)} │ ${String(st.proposed).padStart(8)} │ ${String(st.droppedUnpremised).padStart(9)} │ ${String(st.autoRejected).padStart(7)} │ ${String(st.debate).padStart(6)} │ ${String(st.queued).padStart(6)}\n`);
+    process.stderr.write(`${f} │ ${String(st.generated).padStart(9)} │ ${String(st.rejectedUnbounded).padStart(8)} │ ${String(st.rejectedCapped).padStart(6)} │ ${String(st.rejectedType).padStart(7)} │ ${String(st.proposed).padStart(8)} │ ${String(st.droppedUnpremised).padStart(9)} │ ${String(st.autoRejected).padStart(7)} │ ${String(st.debate).padStart(6)} │ ${String(st.queued).padStart(6)}\n`);
   }
   process.stderr.write(`\n`);
   process.stderr.write(`Total records:     ${result.records.length}\n`);
@@ -251,10 +250,10 @@ async function main(): Promise<void> {
 
   // Dry-run final count summary (for conductor verification)
   if (effectiveDryRun) {
-    process.stdout.write(`\nDRY-RUN CANDIDATE COUNTS (type gate applied):\n`);
+    process.stdout.write(`\nDRY-RUN CANDIDATE COUNTS (relevance filter + cap + type gate applied):\n`);
     for (const st of result.stats) {
-      const typed = st.generated - st.rejectedType;
-      process.stdout.write(`  ${st.family.padEnd(16)}: generated=${st.generated}, rejectedType=${st.rejectedType}, passed=${typed}\n`);
+      const passed = st.generated - st.rejectedUnbounded - st.rejectedCapped - st.rejectedType;
+      process.stdout.write(`  ${st.family.padEnd(16)}: generated=${st.generated}, rejectedUnbounded=${st.rejectedUnbounded}, rejectedCapped=${st.rejectedCapped}, rejectedType=${st.rejectedType}, passed=${passed}\n`);
     }
     process.stdout.write(`\n`);
   }

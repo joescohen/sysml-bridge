@@ -36,6 +36,28 @@ export interface RejectedCandidate {
   reason: string;     // human-readable explanation
 }
 
+// ── Rejected by relevance filter (unbounded) / per-family cap ───────────────
+
+export interface RelevanceRejectedCandidate {
+  id: string;
+  relationFamily: RelationFamily;
+  sourceId: string;
+  targetId: string;
+  stage: "rejected_unbounded";
+  reasonCode: string; // rejected_unbounded:<signal-miss>
+  reason: string;
+}
+
+export interface CappedCandidate {
+  id: string;
+  relationFamily: RelationFamily;
+  sourceId: string;
+  targetId: string;
+  stage: "rejected_capped";
+  reasonCode: "rejected_capped";
+  reason: string;
+}
+
 // ── Dropped (unpremised) ────────────────────────────────────────────────────
 
 export interface DroppedUnpremisedCandidate {
@@ -145,6 +167,8 @@ export interface ContextBundle {
 export type CandidateRecord =
   | TypedCandidate
   | RejectedCandidate
+  | RelevanceRejectedCandidate
+  | CappedCandidate
   | DroppedUnpremisedCandidate
   | AutoRejectedRecord
   | DebateRecord
@@ -155,6 +179,10 @@ export type CandidateRecord =
 export interface RunStats {
   family: RelationFamily;
   generated: number;
+  /** Rejected by the relevance filter (no corpus signal / already stated). */
+  rejectedUnbounded: number;
+  /** Rejected by the per-family cap (INFER_FAMILY_CAP, default 150). */
+  rejectedCapped: number;
   rejectedType: number;
   proposed: number;
   droppedUnpremised: number;

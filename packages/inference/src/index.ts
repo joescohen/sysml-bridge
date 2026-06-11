@@ -31,6 +31,21 @@ export {
 } from "./candidate-generator.js";
 export type { RawCandidate, GenerationResult } from "./candidate-generator.js";
 
+export {
+  applyRelevanceFilter,
+  scoreAllocationSignals,
+  resolveFamilyCap,
+  nameTokens,
+  normalizeFlowLabel,
+  extractL2Key,
+  DEFAULT_FAMILY_CAP,
+} from "./relevance-filter.js";
+export type {
+  RelevanceFilterResult,
+  RelevanceFilterOptions,
+  AllocationSignalScore,
+} from "./relevance-filter.js";
+
 export { computeDebateVerdict, runDebate, DEBATE_ADVOCATE_CONFIRM, DEBATE_CHALLENGER_REJECT, DEBATE_CHALLENGER_MAX_CONFIRM } from "./debate.js";
 
 export { buildContextBundle, serializeNeighborhood } from "./neighborhood.js";
@@ -39,6 +54,8 @@ export type {
   RelationFamily,
   TypedCandidate,
   RejectedCandidate,
+  RelevanceRejectedCandidate,
+  CappedCandidate,
   DroppedUnpremisedCandidate,
   ProposalOutput,
   AutoRejectedRecord,

@@ -2,7 +2,8 @@
  * engine.ts — F8 inference engine orchestrator.
  *
  * Stage machine:
- *   generate → type gate → LLM propose → premise check → band route → debate → output
+ *   generate → relevance filter (+ per-family cap) → type gate
+ *     → LLM propose → premise check → band route → debate → output
  *
  * Features:
  *   - Sentinel keyed on composed-IR hash: skip if hash unchanged (INFER_FORCE=1 overrides)
@@ -29,6 +30,7 @@ import type {
 import { classifyBand } from "./types.js";
 import { buildElementMap, applyTypeGate } from "./type-gate.js";
 import { generateCandidates, buildSkipSet, inferenceStableId } from "./candidate-generator.js";
+import { applyRelevanceFilter, resolveFamilyCap } from "./relevance-filter.js";
 import { buildContextBundle } from "./neighborhood.js";
 import { runDebate } from "./debate.js";
 
@@ -118,6 +120,8 @@ export interface EngineOptions {
   dryRun?: boolean;
   /** Budget cap in USD. If estimated cost exceeds this, abort before any LLM spend. */
   budgetUsd?: number;
+  /** Per-family candidate cap. Default: INFER_FAMILY_CAP env, else 150. */
+  familyCap?: number;
   /** Verbose logging function (defaults to console.error). */
   log?: (msg: string) => void;
 }
@@ -170,9 +174,30 @@ export async function runInferenceEngine(
 
   log(`[inference] Generated candidates: allocation=${countsByFamily.allocation}, modeMembership=${countsByFamily.modeMembership}, flowTyping=${countsByFamily.flowTyping}, controlJoin=${countsByFamily.controlJoin} (total=${candidates.length})`);
 
+  // ── Relevance filter + per-family cap (pre-type-gate, deterministic) ───────
+  const familyCap = resolveFamilyCap(options.familyCap);
+  const {
+    kept: relevantCandidates,
+    rejected: relevanceRejected,
+    capped: capRejected,
+  } = applyRelevanceFilter(candidates, ir, { familyCap });
+
+  const unboundedByFamily: Record<RelationFamily, number> = {
+    allocation: 0, modeMembership: 0, flowTyping: 0, controlJoin: 0,
+  };
+  for (const r of relevanceRejected) unboundedByFamily[r.relationFamily]++;
+  const cappedByFamily: Record<RelationFamily, number> = {
+    allocation: 0, modeMembership: 0, flowTyping: 0, controlJoin: 0,
+  };
+  for (const r of capRejected) cappedByFamily[r.relationFamily]++;
+
+  log(`[inference] Relevance filter: ${relevantCandidates.length} kept, ${relevanceRejected.length} rejected_unbounded, ${capRejected.length} rejected_capped (cap=${familyCap}/family)`);
+  log(`[inference] rejected_unbounded by family: allocation=${unboundedByFamily.allocation}, modeMembership=${unboundedByFamily.modeMembership}, flowTyping=${unboundedByFamily.flowTyping}, controlJoin=${unboundedByFamily.controlJoin}`);
+  log(`[inference] rejected_capped by family: allocation=${cappedByFamily.allocation}, modeMembership=${cappedByFamily.modeMembership}, flowTyping=${cappedByFamily.flowTyping}, controlJoin=${cappedByFamily.controlJoin}`);
+
   // ── Type gate ──────────────────────────────────────────────────────────────
   const elementMap = buildElementMap(ir);
-  const { accepted, rejected } = applyTypeGate(candidates, elementMap);
+  const { accepted, rejected } = applyTypeGate(relevantCandidates, elementMap);
 
   const rejectedByFamily: Record<RelationFamily, number> = {
     allocation: 0, modeMembership: 0, flowTyping: 0, controlJoin: 0,
@@ -187,6 +212,8 @@ export async function runInferenceEngine(
     const stats: RunStats[] = (["allocation", "modeMembership", "flowTyping", "controlJoin"] as RelationFamily[]).map((family) => ({
       family,
       generated: countsByFamily[family],
+      rejectedUnbounded: unboundedByFamily[family],
+      rejectedCapped: cappedByFamily[family],
       rejectedType: rejectedByFamily[family],
       proposed: 0,
       droppedUnpremised: 0,
@@ -196,7 +223,7 @@ export async function runInferenceEngine(
     }));
 
     return {
-      records: [...accepted, ...rejected],
+      records: [...accepted, ...relevanceRejected, ...capRejected, ...rejected],
       stats,
       irHash,
       skippedSentinel: false,
@@ -217,12 +244,14 @@ export async function runInferenceEngine(
   }
 
   // ── Proposal pass + band routing + debate ────────────────────────────────
-  const allRecords: CandidateRecord[] = [...rejected];
+  const allRecords: CandidateRecord[] = [...relevanceRejected, ...capRejected, ...rejected];
   const statMap = new Map<RelationFamily, RunStats>();
   for (const family of ["allocation", "modeMembership", "flowTyping", "controlJoin"] as RelationFamily[]) {
     statMap.set(family, {
       family,
       generated: countsByFamily[family],
+      rejectedUnbounded: unboundedByFamily[family],
+      rejectedCapped: cappedByFamily[family],
       rejectedType: rejectedByFamily[family],
       proposed: 0,
       droppedUnpremised: 0,
@@ -302,7 +331,7 @@ export async function runInferenceEngine(
     if (band === "debate") {
       // Run adversarial debate for mid-confidence band
       stats.debate++;
-      let debateResult: import("./debate.js").DebateResult;
+      let debateResult: import("./types.js").DebateResult;
 
       try {
         debateResult = await runDebate(provider, candidate.relationFamily, proposal, context);
