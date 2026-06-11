@@ -17,6 +17,7 @@ import { chunkWithIds } from "./chunker.js";
 import type { ChunkContext, ChunkTextOptions } from "./chunker.js";
 import { stableId } from "@sysml-bridge/ir";
 import type { LlmProvider, CandidateProposal } from "./llm-provider.js";
+import { validateKindSpecificFields } from "./llm-provider.js";
 
 // ── ProseCandidateRecord ──────────────────────────────────────────────────────
 
@@ -58,6 +59,11 @@ export interface IngestPipelineResult {
    * Included for explicit assertion in tests.
    */
   emittedUncited: number;
+  /**
+   * Proposals dropped because they were missing kind-specific required fields
+   * (T1 malformed-drop gate). Never emitted malformed.
+   */
+  droppedMalformed: number;
 }
 
 // ── IngestPipelineOptions ─────────────────────────────────────────────────────
@@ -128,6 +134,7 @@ export async function runIngestPipeline(
   const candidates: ProseCandidateRecord[] = [];
   let processedChunks = 0;
   let droppedUncited = 0;
+  let droppedMalformed = 0;
 
   for (const chunk of chunks) {
     // C5: exactly-once — increment before calling provider
@@ -144,6 +151,12 @@ export async function runIngestPipeline(
       if (!chunkStore.has(proposal.citedChunkId)) {
         droppedUncited++;
         continue; // DROP unresolvable proposal
+      }
+
+      // T1: kind-specific required-field gate
+      if (!validateKindSpecificFields(proposal)) {
+        droppedMalformed++;
+        continue; // DROP malformed proposal — never emit malformed
       }
 
       // Build deterministic candidate ID
@@ -177,5 +190,6 @@ export async function runIngestPipeline(
     processedChunks,
     droppedUncited,
     emittedUncited: 0, // always 0 — the gate above enforces this
+    droppedMalformed,
   };
 }

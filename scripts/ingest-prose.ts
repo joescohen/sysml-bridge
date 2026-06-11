@@ -21,7 +21,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, dirname } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parsePdf } from "../packages/prose-ingest/src/parsers/pdf.js";
 import { runIngestPipeline } from "../packages/prose-ingest/src/ingest-pipeline.js";
@@ -37,6 +37,33 @@ const REPO_ROOT = join(__dirname, "..");
 
 const CORPUS_DIR = join(REPO_ROOT, "examples/angars/corpus/specs");
 const DEFAULT_OUT = join(REPO_ROOT, "examples/angars/model/prose-candidates.json");
+
+/**
+ * Zero-dependency .env loader. Reads repo-root `.env` (gitignored) and sets any
+ * KEY=VALUE into process.env WITHOUT overriding values already exported in the
+ * shell. Lets ANTHROPIC_API_KEY live in .env so the pipeline "just works"
+ * without an export dance — no dotenv dependency.
+ */
+function loadDotEnv(): void {
+  const envPath = join(REPO_ROOT, ".env");
+  if (!existsSync(envPath)) return;
+  for (const raw of readFileSync(envPath, "utf8").split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+    const key = line.slice(0, eq).trim();
+    if (!key || process.env[key] !== undefined) continue; // shell export wins
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
+}
 
 const DOCS: Array<{ file: string; docId: string }> = [
   { file: "Appendix_B_ANGARS_RAR_CONOPS.pdf", docId: "angars-conops" },
@@ -77,6 +104,7 @@ function parseArgs(argv: string[]): { outPath: string; dryRun: boolean } {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  loadDotEnv(); // load ANTHROPIC_API_KEY from .env before the key check below
   const { outPath, dryRun } = parseArgs(process.argv.slice(2));
 
   // Verify corpus is present
@@ -90,6 +118,7 @@ async function main(): Promise<void> {
 
   // Resolve LLM provider
   const hasKey = Boolean(process.env["ANTHROPIC_API_KEY"]);
+  const ingestModel = process.env["PROSE_INGEST_MODEL"] ?? "claude-haiku-4-5-20251001";
   let provider: LlmProvider;
 
   if (dryRun) {
@@ -101,7 +130,7 @@ async function main(): Promise<void> {
     );
     provider = new NoOpProvider();
   } else {
-    console.log("[LLM] ANTHROPIC_API_KEY present — using AnthropicLlmProvider (claude-opus-4-8)");
+    console.log(`[LLM] ANTHROPIC_API_KEY present — using AnthropicLlmProvider (${ingestModel})`);
     provider = new AnthropicLlmProvider();
   }
 
@@ -172,7 +201,7 @@ async function main(): Promise<void> {
     totalCandidates: allCandidates.length,
     totalChunks,
     totalDropped,
-    llmProviderUsed: hasKey && !dryRun ? "anthropic/claude-opus-4-8" : "none",
+    llmProviderUsed: hasKey && !dryRun ? `anthropic/${ingestModel}` : "none",
     candidates: allCandidates,
   };
   await writeFile(outPath, JSON.stringify(output, null, 2), "utf8");

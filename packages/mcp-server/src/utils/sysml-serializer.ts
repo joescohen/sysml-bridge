@@ -131,7 +131,8 @@ function nestedStatement(
   tgt: string,
   name: string | null,
   payloadType?: string | null,
-  typeName?: string | null
+  typeName?: string | null,
+  guard?: string | null
 ): string {
   switch (kind) {
     case "connect":
@@ -141,6 +142,10 @@ function nestedStatement(
     case "bind":
       return `bind ${src} = ${tgt};`;
     case "succession":
+      // Guarded succession: `first X if <guard> then Y;` — validated in activity-control-flow.sysml
+      if (guard && guard.length > 0) {
+        return `first ${src} if ${guard} then ${tgt};`;
+      }
       return `first ${src} then ${tgt};`;
     case "transition":
       return `transition first ${src} then ${tgt};`;
@@ -184,6 +189,11 @@ const TYPE_TO_KEYWORD: Record<string, string> = {
   ConstraintUsage: "constraint",
   ActionDefinition: "action def",
   ActionUsage: "action",
+  // Activity control nodes — validated against activity-control-flow.sysml fixture
+  DecisionNode: "decide",
+  ForkNode: "fork",
+  JoinNode: "join",
+  MergeNode: "merge",
   StateDefinition: "state def",
   StateUsage: "state",
   UseCaseDefinition: "use case def",
@@ -348,12 +358,17 @@ export function serializeToSysml(
 
   // (a) Relationship-shaped nested rels (Connector, Succession, Transition,
   // Flow...). A "Flow" rel may carry raw.payloadType for a typed item flow.
+  // A "Succession" rel may carry raw.guard for a guarded succession (`first X if <g> then Y;`).
   for (const rel of relationships) {
     const kind = NESTED_REL_KIND[rel.type];
     if (!kind) continue;
     const payloadType =
       kind === "flow" && typeof rel.raw?.payloadType === "string"
         ? (rel.raw.payloadType as string)
+        : null;
+    const guard =
+      kind === "succession" && typeof rel.raw?.guard === "string" && (rel.raw.guard as string).length > 0
+        ? (rel.raw.guard as string)
         : null;
     const stmt = resolveNestedFromEndpoints(
       kind,
@@ -363,7 +378,9 @@ export function serializeToSysml(
       typeof rel.raw?.ownerId === "string" ? (rel.raw.ownerId as string) : undefined,
       elementById,
       elementIds,
-      payloadType
+      payloadType,
+      null,
+      guard
     );
     if (stmt) addNested(nestedByOwner, stmt);
   }
@@ -759,7 +776,8 @@ function resolveNestedFromEndpoints(
   elementById: Map<string, SysmlElement>,
   elementIds: Set<string>,
   payloadType?: string | null,
-  typeName?: string | null
+  typeName?: string | null,
+  guard?: string | null
 ): NestedStmt | null {
   if (srcId === undefined || tgtId === undefined) return null;
 
@@ -773,7 +791,7 @@ function resolveNestedFromEndpoints(
 
   return {
     ownerId,
-    text: nestedStatement(kind, srcRef, tgtRef, name, payloadType, typeName),
+    text: nestedStatement(kind, srcRef, tgtRef, name, payloadType, typeName, guard),
   };
 }
 

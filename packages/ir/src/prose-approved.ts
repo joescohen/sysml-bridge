@@ -47,6 +47,9 @@ export const ProseApprovedEntrySchema = z.object({
     "interface",
     "component",
     "function",
+    "succession",
+    "decision",
+    "parallel",
   ]),
   /** Arbitrary key/value fields extracted from the prose */
   fields: z.record(z.unknown()),

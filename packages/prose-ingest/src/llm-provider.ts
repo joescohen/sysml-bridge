@@ -16,7 +16,17 @@ import { z } from "zod";
 
 /** One candidate proposed by the LLM for a single chunk. */
 export interface CandidateProposal {
-  kind: "requirement" | "need" | "mode" | "modeTransition" | "interface" | "component" | "function";
+  kind:
+    | "requirement"
+    | "need"
+    | "mode"
+    | "modeTransition"
+    | "interface"
+    | "component"
+    | "function"
+    | "succession"
+    | "decision"
+    | "parallel";
   /** Arbitrary structured fields extracted from the prose. */
   fields: Record<string, unknown>;
   /**
@@ -28,6 +38,46 @@ export interface CandidateProposal {
   confidence: number;
   /** Verbatim quote from the source chunk (≤ 300 chars). */
   quote: string;
+}
+
+// ── Kind-specific required-field validation ───────────────────────────────────
+
+/**
+ * Validate kind-specific required fields for a proposal.
+ * Returns true if the proposal is well-formed; false if it should be DROPPED
+ * (counted as droppedMalformed — never emitted malformed).
+ *
+ * Rules:
+ *   - modeTransition: fields.fromMode (string) + fields.toMode (string) REQUIRED
+ *   - succession: fields.owningFunction (string) + fields.fromAction (string) + fields.toAction (string) REQUIRED
+ *   - decision: fields.owningFunction (string) + fields.atAction (string) + fields.branches (array, ≥2) REQUIRED
+ *   - parallel: fields.owningFunction (string) + fields.branchActions (string[], ≥2) REQUIRED
+ *   - all other kinds: no additional required fields (pass through)
+ */
+export function validateKindSpecificFields(proposal: CandidateProposal): boolean {
+  const f = proposal.fields;
+  switch (proposal.kind) {
+    case "modeTransition":
+      return typeof f["fromMode"] === "string" && f["fromMode"].length > 0 &&
+             typeof f["toMode"] === "string" && f["toMode"].length > 0;
+    case "succession":
+      return typeof f["owningFunction"] === "string" && f["owningFunction"].length > 0 &&
+             typeof f["fromAction"] === "string" && f["fromAction"].length > 0 &&
+             typeof f["toAction"] === "string" && f["toAction"].length > 0;
+    case "decision": {
+      if (typeof f["owningFunction"] !== "string" || f["owningFunction"].length === 0) return false;
+      if (typeof f["atAction"] !== "string" || f["atAction"].length === 0) return false;
+      const branches = f["branches"];
+      return Array.isArray(branches) && branches.length >= 2;
+    }
+    case "parallel": {
+      if (typeof f["owningFunction"] !== "string" || f["owningFunction"].length === 0) return false;
+      const branchActions = f["branchActions"];
+      return Array.isArray(branchActions) && branchActions.length >= 2;
+    }
+    default:
+      return true; // requirement, need, mode, interface, component, function — no extra required fields
+  }
 }
 
 // ── LlmProvider interface ─────────────────────────────────────────────────────
@@ -61,6 +111,9 @@ const ProposalSchema = z.object({
     "interface",
     "component",
     "function",
+    "succession",
+    "decision",
+    "parallel",
   ]),
   fields: z.record(z.unknown()),
   citedChunkId: z.string(),
@@ -81,28 +134,74 @@ Given a text chunk from an ANGARS (Autonomous Non-stop Ground-based Autonomous R
 specification document, identify any discrete engineering artifacts present in the chunk.
 
 For each artifact found, return:
-- kind: one of requirement|need|mode|modeTransition|interface|component|function
-- fields: an object with relevant extracted fields (e.g. text, id, rationale, constraint)
+- kind: one of requirement|need|mode|modeTransition|interface|component|function|succession|decision|parallel
+- fields: an object with the REQUIRED fields for that kind (see below)
 - citedChunkId: MUST be exactly the chunkId provided in the user message — do NOT invent a different value
 - confidence: 0.0–1.0 float reflecting your confidence in the extraction
 - quote: the verbatim span from the chunk supporting this extraction (≤ 300 chars)
 
+KIND-SPECIFIC REQUIRED FIELDS (proposals missing required fields will be rejected):
+
+requirement: { text: string }
+  Example: { "kind": "requirement", "fields": { "text": "The system shall refuel within 60 seconds" } }
+
+need: { text: string }
+  Example: { "kind": "need", "fields": { "text": "Autonomous refueling without human intervention" } }
+
+mode: { name: string }
+  Example: { "kind": "mode", "fields": { "name": "Standby" } }
+
+modeTransition: { fromMode: string (REQUIRED), toMode: string (REQUIRED), trigger?: string, guard?: string }
+  Example: { "kind": "modeTransition", "fields": { "fromMode": "Standby", "toMode": "Active", "trigger": "power on" } }
+
+interface: { name: string, source?: string, target?: string }
+  Example: { "kind": "interface", "fields": { "name": "Fuel Interface", "source": "Pump", "target": "Tank" } }
+
+component: { name: string }
+  Example: { "kind": "component", "fields": { "name": "Fuel Pump" } }
+
+function: { name: string, level?: string }
+  Example: { "kind": "function", "fields": { "name": "Receive Refueling Request", "level": "L2" } }
+
+succession: { owningFunction: string (REQUIRED), fromAction: string (REQUIRED), toAction: string (REQUIRED), guard?: string }
+  (Intra-function sequential ordering explicitly stated in prose)
+  Example: { "kind": "succession", "fields": { "owningFunction": "F3", "fromAction": "Receive Request", "toAction": "Validate Capacity" } }
+
+decision: { owningFunction: string (REQUIRED), atAction: string (REQUIRED), branches: [{guard: string, toAction: string}, ...] (REQUIRED, ≥2 branches) }
+  (A branching control-flow decision node explicitly described in prose)
+  Example: { "kind": "decision", "fields": { "owningFunction": "F3", "atAction": "fuelCheck", "branches": [{ "guard": "fuelOk", "toAction": "Proceed" }, { "guard": "fuelLow", "toAction": "Abort" }] } }
+
+parallel: { owningFunction: string (REQUIRED), branchActions: string[] (REQUIRED, ≥2 elements) }
+  (Explicitly parallel/concurrent activities stated in prose)
+  Example: { "kind": "parallel", "fields": { "owningFunction": "F3", "branchActions": ["Generate Schedule", "Display Mission Data"] } }
+
 If the chunk contains no extractable MBSE artifacts, return an empty proposals array.
-Return only well-formed artifacts — do not hallucinate IDs or references not present in the text.`;
+Return only well-formed artifacts — do not hallucinate IDs or references not present in the text.
+Only emit succession/decision/parallel when the prose EXPLICITLY states the ordering or branching.
+Do NOT infer ordering from narrative sequence; require explicit control-flow language.`;
 
 // ── Anthropic implementation ──────────────────────────────────────────────────
 
 /**
- * Real LLM provider using the Anthropic API (claude-opus-4-8).
+ * Default extraction model — Haiku (light, fast, cheap; structured extraction
+ * does not need a frontier model). Override with PROSE_INGEST_MODEL.
+ */
+const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
+
+/**
+ * Real LLM provider using the Anthropic API.
  *
- * Requires ANTHROPIC_API_KEY environment variable.
- * Uses structured output (client.messages.parse) to enforce the JSON schema.
+ * Requires ANTHROPIC_API_KEY. Model defaults to Haiku (DEFAULT_MODEL) and is
+ * overridable via the PROSE_INGEST_MODEL env var or the constructor.
+ * Uses structured output to enforce the JSON schema.
  */
 export class AnthropicLlmProvider implements LlmProvider {
   private client: Anthropic;
+  private model: string;
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, model?: string) {
     this.client = new Anthropic({ apiKey: apiKey ?? process.env["ANTHROPIC_API_KEY"] });
+    this.model = model ?? process.env["PROSE_INGEST_MODEL"] ?? DEFAULT_MODEL;
   }
 
   async propose(
@@ -120,10 +219,11 @@ export class AnthropicLlmProvider implements LlmProvider {
     ].join("\n");
 
     // Use structured output with JSON response format
+    // No extended thinking: structured JSON extraction doesn't need it, it adds
+    // cost/latency, and "adaptive" thinking is unsupported on lighter models (Haiku).
     const response = await this.client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 16000,
-      thinking: { type: "adaptive" },
+      model: this.model,
+      max_tokens: 8000,
       system: SYSTEM_PROMPT,
       messages: [
         {

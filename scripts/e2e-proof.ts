@@ -460,45 +460,193 @@ async function main(): Promise<void> {
   }
   console.log(`  Created ${l3Functions.length} FeatureMembership (L2→L3) edges`);
 
-  // Successions across siblings ordered by naturalKey (for each L2 parent)
-  // Using Succession type (not Connector) — Connector emits `connect` which is
-  // wrong inside an action body; Succession emits `first X then Y;` (grammar-valid).
-  // DOCUMENTED DIVERGENCE: mbse-build Step 4 says type "Connector" — but Connector
-  // emits `connect`, not `first..then`. The grammar gate would reject `connect`
-  // inside an action def body. We use Succession which emits `first X then Y;`.
-  // See sysml-serializer.ts NESTED_REL_KIND map: Succession → "succession" → `first..then`.
+  // Control flow: ONLY from approved prose entries (succession/decision/parallel kinds).
+  // The prior naturalKey-order succession fabrication has been REMOVED — it created
+  // linear sequences the corpus never stated (e.g. F3's "Emergency Shutdown" appearing
+  // mid-happy-path). This violates the no-fabrication core value.
+  //
+  // DIVERGENCE NOTE: the prior linear ordering was removed as unsupported-by-corpus.
+  // When the corpus provides no control-flow entries for a function, we emit NO
+  // successions — an unordered action set is the honest representation.
   DIVERGENCES.push(
-    "Pillar 3 — Succession instead of Connector for L3 sibling control flow: " +
-    "mbse-build Step 4 says type 'Connector', but Connector emits `connect` (wrong inside " +
-    "an action body, grammar gate would catch it). We use 'Succession' which emits " +
-    "`first X then Y;` — the correct grammar form. Owner = parent L2 def."
+    "Pillar 3 — Prior naturalKey-order succession fabrication REMOVED: " +
+    "linear control-flow ordering by naturalKey was never stated by the corpus and " +
+    "violated the no-fabrication core value (e.g. F3 Emergency Shutdown appeared " +
+    "mid-happy-path). Successions/decisions/parallels now come ONLY from approved " +
+    "prose entries. Where the corpus provides nothing, no successions are emitted — " +
+    "an unordered action set is the honest representation."
   );
 
+  // Build action-name lookup per L2 function for resolving flow endpoints.
+  // action name → elem id, scoped to each L2 parent (exact match first).
+  // Also build a reverse map: l2NaturalKey → list of L3 action names for unresolved logging.
+  const l3ByL2Nk = new Map<string, Array<{ name: string; elemId: string }>>();
+  for (const fn of l3Functions) {
+    const parentNk = fn.naturalKey.split(".")[0]!;
+    if (!l3ByL2Nk.has(parentNk)) l3ByL2Nk.set(parentNk, []);
+    const elemId = funcNkToElemId.get(fn.naturalKey);
+    if (elemId) l3ByL2Nk.get(parentNk)!.push({ name: fn.name, elemId });
+  }
+
+  // Approved prose entries for control flow kinds
+  const approvedSuccessions = composed.proseEntries.filter((e) => e.kind === "succession");
+  const approvedDecisions = composed.proseEntries.filter((e) => e.kind === "decision");
+  const approvedParallels = composed.proseEntries.filter((e) => e.kind === "parallel");
+
+  // Per-function flow edge counters for the run report
+  const flowEdgesByFunc = new Map<string, number>(); // l2 naturalKey → edge count
+  for (const l2 of l2Functions) flowEdgesByFunc.set(l2.naturalKey, 0);
+
   let successionCount = 0;
-  for (const l2 of l2Functions) {
+  let controlNodeCount = 0;
+  let unresolvedFlowRefs = 0;
+
+  // Helper: resolve an action name to an elem id within a given L2 parent (exact match first)
+  function resolveActionId(actionName: string, l2Nk: string): string | undefined {
+    const children = l3ByL2Nk.get(l2Nk) ?? [];
+    const exact = children.find((c) => c.name === actionName);
+    return exact?.elemId;
+  }
+
+  // Process succession entries
+  for (const entry of approvedSuccessions) {
+    const f = entry.fields as Record<string, unknown>;
+    const owningFunc = f["owningFunction"] as string;
+    const fromAction = f["fromAction"] as string;
+    const toAction = f["toAction"] as string;
+    const guard = typeof f["guard"] === "string" ? f["guard"] : undefined;
+
+    // Find the L2 parent naturalKey — match by naturalKey or name
+    const l2 = l2Functions.find((fn) => fn.naturalKey === owningFunc || fn.name === owningFunc);
+    if (!l2) {
+      console.warn(`  WARN: succession ${entry.id} owningFunction="${owningFunc}" not found in L2 functions — skipped`);
+      unresolvedFlowRefs++;
+      continue;
+    }
     const parentElemId = funcNkToElemId.get(l2.naturalKey);
     if (!parentElemId) continue;
-    // Get children sorted by naturalKey
-    const children = l3Functions
-      .filter((f) => f.naturalKey.startsWith(l2.naturalKey + "."))
-      .sort((a, b) => {
-        const na = parseInt(a.naturalKey.split(".")[1] ?? "0", 10);
-        const nb = parseInt(b.naturalKey.split(".")[1] ?? "0", 10);
-        return na - nb;
-      });
-    for (let i = 0; i < children.length - 1; i++) {
-      const srcId = funcNkToElemId.get(children[i].naturalKey);
-      const tgtId = funcNkToElemId.get(children[i + 1].naturalKey);
-      if (!srcId || !tgtId) continue;
+
+    const srcId = resolveActionId(fromAction, l2.naturalKey);
+    const tgtId = resolveActionId(toAction, l2.naturalKey);
+    if (!srcId) {
+      console.warn(`  WARN: succession ${entry.id} fromAction="${fromAction}" not found in ${l2.naturalKey} — skipped`);
+      unresolvedFlowRefs++;
+      continue;
+    }
+    if (!tgtId) {
+      console.warn(`  WARN: succession ${entry.id} toAction="${toAction}" not found in ${l2.naturalKey} — skipped`);
+      unresolvedFlowRefs++;
+      continue;
+    }
+
+    await store.createElement("Succession", "", {
+      source: [{ "@id": srcId }],
+      target: [{ "@id": tgtId }],
+      owner: parentElemId,
+      guard: guard,
+      provenanceSourceId: entry.id,
+    });
+    successionCount++;
+    flowEdgesByFunc.set(l2.naturalKey, (flowEdgesByFunc.get(l2.naturalKey) ?? 0) + 1);
+  }
+
+  // Process decision entries — emit a DecisionNode + guarded successions to branches
+  for (const entry of approvedDecisions) {
+    const f = entry.fields as Record<string, unknown>;
+    const owningFunc = f["owningFunction"] as string;
+    const atAction = f["atAction"] as string;
+    const branches = f["branches"] as Array<{ guard: string; toAction: string }>;
+
+    const l2 = l2Functions.find((fn) => fn.naturalKey === owningFunc || fn.name === owningFunc);
+    if (!l2) {
+      console.warn(`  WARN: decision ${entry.id} owningFunction="${owningFunc}" not found — skipped`);
+      unresolvedFlowRefs++;
+      continue;
+    }
+    const parentElemId = funcNkToElemId.get(l2.naturalKey);
+    if (!parentElemId) continue;
+
+    // Create the DecisionNode (named after atAction)
+    const decideEl = await store.createElement("DecisionNode", atAction, {
+      provenanceSourceId: entry.id,
+      owner: parentElemId,
+    });
+    controlNodeCount++;
+    flowEdgesByFunc.set(l2.naturalKey, (flowEdgesByFunc.get(l2.naturalKey) ?? 0) + 1);
+
+    // Create guarded Succession from decideNode to each branch
+    for (const branch of branches) {
+      const branchTgtId = resolveActionId(branch.toAction, l2.naturalKey);
+      if (!branchTgtId) {
+        console.warn(`  WARN: decision ${entry.id} branch toAction="${branch.toAction}" not found — skipped`);
+        unresolvedFlowRefs++;
+        continue;
+      }
       await store.createElement("Succession", "", {
-        source: [{ "@id": srcId }],
-        target: [{ "@id": tgtId }],
+        source: [{ "@id": decideEl.id }],
+        target: [{ "@id": branchTgtId }],
         owner: parentElemId,
+        guard: branch.guard,
+        provenanceSourceId: entry.id,
       });
       successionCount++;
+      flowEdgesByFunc.set(l2.naturalKey, (flowEdgesByFunc.get(l2.naturalKey) ?? 0) + 1);
     }
   }
-  console.log(`  Created ${successionCount} Succession edges (L3 sibling control flow)`);
+
+  // Process parallel entries — emit ForkNode + successions from fork to each branch
+  for (const entry of approvedParallels) {
+    const f = entry.fields as Record<string, unknown>;
+    const owningFunc = f["owningFunction"] as string;
+    const branchActions = f["branchActions"] as string[];
+
+    const l2 = l2Functions.find((fn) => fn.naturalKey === owningFunc || fn.name === owningFunc);
+    if (!l2) {
+      console.warn(`  WARN: parallel ${entry.id} owningFunction="${owningFunc}" not found — skipped`);
+      unresolvedFlowRefs++;
+      continue;
+    }
+    const parentElemId = funcNkToElemId.get(l2.naturalKey);
+    if (!parentElemId) continue;
+
+    // Create ForkNode
+    const forkEl = await store.createElement("ForkNode", `fork_${entry.id.slice(0, 8)}`, {
+      provenanceSourceId: entry.id,
+      owner: parentElemId,
+    });
+    controlNodeCount++;
+    flowEdgesByFunc.set(l2.naturalKey, (flowEdgesByFunc.get(l2.naturalKey) ?? 0) + 1);
+
+    // Successions from fork to each branch
+    for (const branchName of branchActions) {
+      const branchId = resolveActionId(branchName, l2.naturalKey);
+      if (!branchId) {
+        console.warn(`  WARN: parallel ${entry.id} branchAction="${branchName}" not found — skipped`);
+        unresolvedFlowRefs++;
+        continue;
+      }
+      await store.createElement("Succession", "", {
+        source: [{ "@id": forkEl.id }],
+        target: [{ "@id": branchId }],
+        owner: parentElemId,
+        provenanceSourceId: entry.id,
+      });
+      successionCount++;
+      flowEdgesByFunc.set(l2.naturalKey, (flowEdgesByFunc.get(l2.naturalKey) ?? 0) + 1);
+    }
+  }
+
+  // Report per-function corpus-stated flow edge counts
+  console.log(`  Control flow (corpus-stated only): ${successionCount} Succession edges, ${controlNodeCount} control nodes`);
+  console.log(`  Unresolved flow refs: ${unresolvedFlowRefs}`);
+  console.log("  Per-function corpus-stated flow edges:");
+  for (const l2 of l2Functions) {
+    const count = flowEdgesByFunc.get(l2.naturalKey) ?? 0;
+    console.log(`    ${l2.naturalKey} "${l2.name}": ${count} flow edges${count === 0 ? " (none — unordered action set)" : ""}`);
+  }
+  if (approvedSuccessions.length + approvedDecisions.length + approvedParallels.length === 0) {
+    console.log("  No approved prose control-flow entries — all L2 functions have unordered action sets (honest).");
+  }
 
   // Functional N2 (22 triples) — item flows between function elements
   let funcN2FlowCount = 0;
