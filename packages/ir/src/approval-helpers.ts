@@ -117,8 +117,13 @@ export async function appendApproval(
     existingEntries = [];
   }
 
-  // Derive deterministic stable id from citation content
-  const naturalKey = `${parsed.citation.docId}:${parsed.citation.chunkId}:${parsed.citation.quote}`;
+  // Derive deterministic stable id from citation content + kind. The `kind` is
+  // part of the natural key because a single sentence can legitimately ground two
+  // distinct entries of different kinds (e.g. a `mode` and a `modeTransition` that
+  // both cite the sentence defining a substage). Without `kind`, those collide on
+  // a single id; including it keeps each entry uniquely addressable while staying
+  // deterministic (same kind + same quote → same id).
+  const naturalKey = `${parsed.kind}:${parsed.citation.docId}:${parsed.citation.chunkId}:${parsed.citation.quote}`;
   const entryId = stableId("prose", naturalKey);
 
   // Build the approved entry

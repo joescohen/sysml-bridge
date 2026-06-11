@@ -420,3 +420,56 @@ describe("A7 probe — exact §5 shape (MT-10)", () => {
     expect(result).toContain('approvedBy = "joe"');
   });
 });
+
+// ---------------------------------------------------------------------------
+// MT-11 — e2e Pillar-5b contract: a NAMED inferred AllocationUsage element
+// (present in BOTH the element list and the relationship list) emits:
+//   (a) the named `allocation '<name>';` usage form (metatag anchor),
+//   (b) the `allocate <src> to <tgt>;` trace line, and
+//   (c) the `metadata InferenceProvenance about '<name>'` block.
+// This is the exact shape scripts/e2e-proof.ts Pillar 5b produces. The anchor
+// name is descriptive ("allocate F3.1 to Pump"); the metatag must resolve to it.
+// ---------------------------------------------------------------------------
+
+describe("MT-11 — e2e Pillar-5b inferred AllocationUsage emission", () => {
+  it("emits named allocation + allocate line + metatag about the named allocation", () => {
+    const fn = el({ id: "fn", type: "ActionUsage", name: "Validate Fuel Compatibility" });
+    const comp = el({ id: "c", type: "PartUsage", name: "Fuel Transfer Pump" });
+    const allocName = "allocate F3.1 to Fuel Transfer Pump";
+    const alloc = el({
+      id: "a1",
+      type: "AllocationUsage",
+      name: allocName,
+      raw: { provenanceSourceId: "infer-w3-001", source: [{ "@id": "fn" }], target: [{ "@id": "c" }] },
+    });
+
+    const rels: SysmlRelationship[] = [
+      { id: "a1", type: "AllocationUsage", sourceIds: ["fn"], targetIds: ["c"], raw: alloc.raw },
+    ];
+    const entry = makeInferredEntry({
+      id: "infer-w3-001",
+      relationFamily: "allocation",
+      sourceId: "fn",
+      targetId: "c",
+      premises: ["n2-xyz", "function-fn"],
+      confidence: 0.78,
+      inferenceRunId: "run-w3",
+      approvedBy: "fixture-e2e-w3",
+      rationale: "RATIONALE-MUST-NOT-EXPORT",
+    });
+
+    const result = serializeToSysml([fn, comp, alloc], rels, [entry]);
+
+    // (a) named anchor usage
+    expect(result).toContain(`allocation '${allocName}'`);
+    // (b) trace line
+    expect(result).toContain("allocate 'Validate Fuel Compatibility' to 'Fuel Transfer Pump';");
+    // (c) metatag about the named allocation
+    expect(result).toContain(`metadata InferenceProvenance about '${allocName}' {`);
+    expect(result).toContain('provenanceClass = "inferred"');
+    expect(result).toContain('premiseRefs = "n2-xyz, function-fn"');
+    expect(result).toContain('approvedBy = "fixture-e2e-w3"');
+    // rationale is NEVER exported (DEBAT-04)
+    expect(result).not.toContain("RATIONALE-MUST-NOT-EXPORT");
+  });
+});

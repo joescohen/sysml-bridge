@@ -136,6 +136,7 @@ async function main(): Promise<void> {
 
   const allCandidates: ProseCandidateRecord[] = [];
   let totalDropped = 0;
+  let totalMalformed = 0;
   let totalChunks = 0;
   let totalProcessed = 0;
 
@@ -167,6 +168,7 @@ async function main(): Promise<void> {
     console.log(`  chunks: ${result.totalChunks}, processed: ${result.processedChunks}`);
     console.log(`  candidates emitted: ${result.candidates.length}`);
     console.log(`  dropped (uncited): ${result.droppedUncited}`);
+    console.log(`  dropped (malformed — missing kind-specific fields): ${result.droppedMalformed}`);
     console.log(`  emittedUncited (must=0): ${result.emittedUncited}`);
 
     // C4 assertion — fail fast if gate is broken
@@ -184,8 +186,15 @@ async function main(): Promise<void> {
 
     allCandidates.push(...result.candidates);
     totalDropped += result.droppedUncited;
+    totalMalformed += result.droppedMalformed;
     totalChunks += result.totalChunks;
     totalProcessed += result.processedChunks;
+  }
+
+  // Per-kind candidate breakdown (control-flow kinds surfaced explicitly)
+  const byKind: Record<string, number> = {};
+  for (const c of allCandidates) {
+    byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
   }
 
   // Summary
@@ -193,6 +202,15 @@ async function main(): Promise<void> {
   console.log(`  Total candidates: ${allCandidates.length}`);
   console.log(`  Total chunks processed: ${totalProcessed} / ${totalChunks}`);
   console.log(`  Total dropped (uncited): ${totalDropped}`);
+  console.log(`  Total dropped (malformed): ${totalMalformed}`);
+  console.log(`  Per-kind candidate counts:`);
+  for (const kind of [
+    "requirement", "need", "mode", "modeTransition",
+    "interface", "component", "function",
+    "succession", "decision", "parallel",
+  ]) {
+    console.log(`    ${kind.padEnd(16)}: ${byKind[kind] ?? 0}`);
+  }
 
   // Write output
   await mkdir(dirname(outPath), { recursive: true });
@@ -201,6 +219,8 @@ async function main(): Promise<void> {
     totalCandidates: allCandidates.length,
     totalChunks,
     totalDropped,
+    totalMalformed,
+    byKind,
     llmProviderUsed: hasKey && !dryRun ? `anthropic/${ingestModel}` : "none",
     candidates: allCandidates,
   };

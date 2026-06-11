@@ -33,7 +33,7 @@ import { serializeToSysml } from "../packages/mcp-server/src/utils/sysml-seriali
 import { audit } from "../packages/mcp-server/src/audit/index.js";
 import { composeIR } from "@sysml-bridge/ir";
 import type { SysmlElement, SysmlRelationship } from "../packages/mcp-server/src/types/sysml-elements.js";
-import type { Extracted, ProseComposedIR } from "@sysml-bridge/ir";
+import type { Extracted, ProseComposedIR, InferredComposedIR, InferredApprovedEntry } from "@sysml-bridge/ir";
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -46,6 +46,10 @@ const EXTRACTED_JSON = path.join(REPO_ROOT, "examples/angars/model/extracted.jso
 // prose-approved-modes.json: gitignored CONOPS-grounded mode fixture (C10/C11).
 // When absent, Pillar 6 is skipped and no state view is emitted.
 const PROSE_APPROVED_MODES_JSON = path.join(REPO_ROOT, "examples/angars/model/prose-approved-modes.json");
+// inferred-approved.json: gitignored, corpus-derived F8 inferred-allocation fixture.
+// When absent, the inferred-allocation pillar is skipped (no AllocationUsage from
+// inferred entries, no InferenceProvenance metatags) — backward-compatible.
+const INFERRED_APPROVED_JSON = path.join(REPO_ROOT, "examples/angars/model/inferred-approved.json");
 const STORE_DIR =
   process.env.SYSML_BRIDGE_E2E_STORE_DIR ??
   path.join(REPO_ROOT, "examples/angars/model/.store-e2e");
@@ -121,14 +125,27 @@ async function main(): Promise<void> {
   const pipelineStart = Date.now();
   console.log("=== ANGARS Full Corpus E2E Proof Pipeline ===\n");
 
-  // ── Load corpus via composeIR (two-layer: extracted + optional prose modes) ──
+  // ── Load corpus via composeIR (three-layer: extracted + prose modes + inferred) ──
   console.log("Loading corpus from", EXTRACTED_JSON);
   const hasModes = fs.existsSync(PROSE_APPROVED_MODES_JSON);
-  const composed: ProseComposedIR = await composeIR(
+  const hasInferred = fs.existsSync(INFERRED_APPROVED_JSON);
+  const composed: InferredComposedIR = await composeIR(
     EXTRACTED_JSON,
     hasModes ? PROSE_APPROVED_MODES_JSON : undefined,
+    undefined,
+    hasInferred ? INFERRED_APPROVED_JSON : undefined,
   );
   const corpus = composed.extracted;
+  // Approved inferred allocation entries (status 'approved' after premise propagation).
+  // Suspect/superseded entries are excluded from approvedInferredIds, so we filter to
+  // only those whose id is in the Gate-1 resolution set — these are the ones whose
+  // provenanceSourceId will resolve and whose metatags we emit.
+  const approvedInferredEntries: InferredApprovedEntry[] = composed.inferredEntries.filter(
+    (e) => composed.approvedInferredIds.has(e.id),
+  );
+  const approvedInferredAllocations = approvedInferredEntries.filter(
+    (e) => e.relationFamily === "allocation",
+  );
   const approvedModes = composed.proseEntries.filter((e) => e.kind === "mode");
   const approvedTransitions = composed.proseEntries.filter((e) => e.kind === "modeTransition");
   console.log(
@@ -146,6 +163,16 @@ async function main(): Promise<void> {
     );
   } else {
     console.log("  prose-approved-modes.json absent — Pillar 6 (state) will be skipped");
+  }
+  if (hasInferred) {
+    console.log(
+      `Inferred layer loaded: ${composed.inferredEntries.length} inferred entries, ` +
+      `${approvedInferredEntries.length} approved (status='approved' after premise propagation), ` +
+      `${approvedInferredAllocations.length} approved allocations ` +
+      `(${composed.approvedInferredIds.size} approved inferred ids in resolution set)`
+    );
+  } else {
+    console.log("  inferred-approved.json absent — inferred-allocation pillar will be skipped");
   }
 
   // ── Fresh store ──────────────────────────────────────────────────────────
@@ -927,6 +954,83 @@ async function main(): Promise<void> {
   assertCount("satisfy edges (resolvable)", satisfyCount, 110); // corpus anomaly: 44 unresolvable
 
   // ─────────────────────────────────────────────────────────────────────────
+  // PILLAR 5b — Inferred Allocations (F8 third layer: human-approved inferred links)
+  // ─────────────────────────────────────────────────────────────────────────
+  // Builds AllocationUsage from human-approved inferred-allocation entries
+  // (inferred-approved.json, approvedBy in T3). Each approved entry's
+  //   sourceId = L3 leaf-function stableId  → live ActionUsage
+  //   targetId = component stableId         → live component PartUsage
+  // is resolved to live element ids and emitted as:
+  //   (a) a NAMED AllocationUsage element carrying provenanceSourceId = inferred
+  //       entry id — this is the metatag anchor (the serializer emits a
+  //       `metadata InferenceProvenance about '<name>' { ... }` block keyed on it)
+  //       AND it resolves in Gate-1 via composed.approvedInferredIds (no GATE03).
+  //   (b) an `allocate <src> to <tgt>;` trace line (source/target arrays → TRACE_EMIT).
+  // R4: both operands are usages (ActionUsage source, PartUsage target). The named
+  //     AllocationUsage element is itself a usage. INFERRED HONESTY RULE: only
+  //     entries whose id is in approvedInferredIds (status 'approved' after premise
+  //     propagation) are built — suspect/superseded entries are skipped.
+  console.log("\n=== Pillar 5b: Inferred Allocations (F8) ===");
+  let inferredAllocCount = 0;
+  let inferredAllocUnresolved = 0;
+  // Element ids of the named inferred AllocationUsage anchors. These elements carry
+  // provenanceSourceId = an approved inferred id; we route them THROUGH the Gate-1
+  // audit's structural set (so GATE03 resolves the inferred id and fidelity.inferred
+  // counts them) and OUT of the audit's relationship set (so no GATE02-id-duplicate).
+  const inferredAllocElemIds = new Set<string>();
+  if (approvedInferredAllocations.length === 0) {
+    console.log("  No approved inferred allocations — Pillar 5b skipped (honest thin layer).");
+  } else {
+    const inferAllocPkg = await store.createElement("Package", "ANGARS Inferred Allocations", {});
+    const inferAllocPkgId = inferAllocPkg.id;
+    console.log(`  Package: ANGARS Inferred Allocations (${inferAllocPkgId})`);
+
+    // Resolve maps: function stableId → live ActionUsage elem; component stableId → live PartUsage elem.
+    // Source functions are L3 leaves built as ActionUsages (funcNkToElemId), with an
+    // R4 usage-proxy for any L2 def referenced (l2UsageByNk).
+    const compIdToNkLocal = new Map(corpus.components.map((c) => [c.id, c.naturalKey]));
+
+    for (const entry of approvedInferredAllocations) {
+      // Resolve source (function stableId → naturalKey → live elem)
+      const srcNk = funcIdToNk.get(entry.sourceId);
+      const srcElemId = srcNk ? (l2UsageByNk.get(srcNk) ?? funcNkToElemId.get(srcNk)) : undefined;
+      // Resolve target (component stableId → naturalKey → live PartUsage elem)
+      const tgtNk = compIdToNkLocal.get(entry.targetId);
+      const tgtElemId = tgtNk ? compNkToElemId.get(tgtNk) : undefined;
+
+      if (!srcElemId || !tgtElemId) {
+        inferredAllocUnresolved++;
+        console.warn(
+          `  WARN: inferred allocation ${entry.id} unresolvable ` +
+          `(source=${entry.sourceId}->${srcNk ?? "?"}->${srcElemId ?? "MISSING"}, ` +
+          `target=${entry.targetId}->${tgtNk ?? "?"}->${tgtElemId ?? "MISSING"}) — skipped.`
+        );
+        continue;
+      }
+
+      // Named AllocationUsage element: metatag anchor + Gate-1-resolvable provenance.
+      // The name is descriptive and unique-per-link so the `about '<name>'` block
+      // resolves to exactly this element. provenanceSourceId = inferred entry id.
+      const allocName = `allocate ${srcNk} to ${tgtNk}`;
+      const allocEl = await store.createElement("AllocationUsage", allocName, {
+        provenanceSourceId: entry.id, // approved inferred id → resolves in Gate1; anchors metatag
+        owner: inferAllocPkgId,
+        source: [{ "@id": srcElemId }],
+        target: [{ "@id": tgtElemId }],
+      });
+      inferredAllocElemIds.add(allocEl.id);
+      inferredAllocCount++;
+      console.log(
+        `  AllocationUsage: "${allocName}" provenance=${entry.id} conf=${entry.confidence}`
+      );
+    }
+    console.log(
+      `  Pillar 5b: ${inferredAllocCount} inferred AllocationUsage(s) built, ` +
+      `${inferredAllocUnresolved} unresolved (skipped). All provenanceSourceId = approved inferred entry id.`
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // PILLAR 6 — State Machine (corpus-grounded; CONOPS approved modes only)
   // ─────────────────────────────────────────────────────────────────────────
   // C10 (neg): every state/transition provenanceSourceId is an approved prose entry id.
@@ -1101,9 +1205,22 @@ async function main(): Promise<void> {
   ]);
   const structuralElementsForAudit = allElements.filter(
     (e) =>
-      !SYSML_REL_TYPE_SET.has(e.type) &&
-      !Array.isArray((e.raw as Record<string, unknown>).source) &&
-      !Array.isArray((e.raw as Record<string, unknown>).target)
+      // Inferred AllocationUsage anchors (Pillar 5b): route THROUGH the audit's
+      // structural set so GATE03 resolves their inferred provenanceSourceId and
+      // fidelity.inferred counts them. They are removed from the audit's
+      // relationship array below to avoid GATE02-id-duplicate (same id in both).
+      inferredAllocElemIds.has(e.id) ||
+      (!SYSML_REL_TYPE_SET.has(e.type) &&
+        !Array.isArray((e.raw as Record<string, unknown>).source) &&
+        !Array.isArray((e.raw as Record<string, unknown>).target))
+  );
+
+  // Inferred AllocationUsage anchors are audited as structural elements (above);
+  // exclude them from the relationship array so a single id never appears in both
+  // arrays (GATE02-id-duplicate). Their `allocate` trace LINE is still emitted at
+  // serialization time (the export path passes them as relationships there).
+  const allRelationshipsForAudit = allRelationships.filter(
+    (r) => !inferredAllocElemIds.has(r.id)
   );
 
   // Pass ProseComposedIR when prose modes are available so approved prose ids
@@ -1111,7 +1228,7 @@ async function main(): Promise<void> {
   // resolution set — preventing GATE03-unresolvable-provenance errors on Pillar 6.
   // When no prose layer, `composed.proseEntries` is [] and approvedProseIds is empty,
   // so audit() falls back through the ProseComposedIR path cleanly.
-  const auditResult = audit(structuralElementsForAudit, allRelationships, composed);
+  const auditResult = audit(structuralElementsForAudit, allRelationshipsForAudit, composed);
   const { findings, fidelity, matrix } = auditResult;
 
   // Per-ruleId finding counts
@@ -1223,17 +1340,33 @@ async function main(): Promise<void> {
   const successionElements = allElements.filter((e) => e.type === "Succession");
   // TransitionUsage (Pillar 6): element-shaped with source/target arrays, like Succession.
   const transitionElements = allElements.filter((e) => e.type === "TransitionUsage");
+  // Inferred AllocationUsage elements (Pillar 5b): NAMED usages carrying an approved
+  // inferred provenanceSourceId. They must appear in the element list (not just the
+  // relationship list) so the serializer emits the named `allocation '<name>';` usage
+  // form — that named element is the anchor the `metadata InferenceProvenance about
+  // '<name>'` block resolves to. The `allocate <src> to <tgt>;` trace line is emitted
+  // separately from the relationship list (AllocationUsage is in `relationships`).
+  // Only inferred-provenance allocations are promoted to elements here; any future
+  // corpus/model-asserted AllocationUsage stays relationship-only (no name anchor).
+  const inferredAllocationElements = relElements.filter(
+    (e) =>
+      e.type === "AllocationUsage" &&
+      typeof e.raw?.provenanceSourceId === "string" &&
+      composed.approvedInferredIds.has(e.raw.provenanceSourceId as string)
+  );
 
   // Build full element list for serialization:
   // - structural elements (packages, defs, usages — includes StateDefinition, StateUsage)
   // - flow elements (element-shaped nested rels)
   // - succession elements (element-shaped or relationship-shaped)
   // - transition elements (Pillar 6 state transitions, same shape as Succession)
+  // - inferred allocation elements (Pillar 5b metatag anchors)
   const elementsForSerialization = [
     ...structuralElements,
     ...flowElements,
     ...successionElements,
     ...transitionElements,
+    ...inferredAllocationElements,
   ];
 
   // All relationships for serialization: trace rels (satisfy/derive/alloc) + verify
@@ -1261,7 +1394,16 @@ async function main(): Promise<void> {
 
   const allSerializeRels = [...relationships, ...verifyRels, ...successionRels, ...transitionRels];
 
-  const sysmlText = serializeToSysml(elementsForSerialization, allSerializeRels);
+  // Pass approved inferred entries so the serializer emits the InferenceProvenance
+  // metatag def (once) + per-element `metadata InferenceProvenance about '<name>' { ... }`
+  // blocks for each named inferred AllocationUsage. Rationale is NEVER exported
+  // (DEBAT-04); premiseRefs carries ids only. When there are no approved inferred
+  // entries, the arg is [] and no metatag content is emitted (byte-identical to before).
+  const sysmlText = serializeToSysml(
+    elementsForSerialization,
+    allSerializeRels,
+    approvedInferredEntries,
+  );
   fs.mkdirSync(path.dirname(OUTPUT_SYSML), { recursive: true });
   fs.writeFileSync(OUTPUT_SYSML, sysmlText, "utf8");
   console.log(`  Written: ${OUTPUT_SYSML} (${sysmlText.length} chars, ${sysmlText.split("\n").length} lines)`);
