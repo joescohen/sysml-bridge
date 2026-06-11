@@ -3,13 +3,17 @@
  *
  * E2E-01 proof driver: executes the full ANGARS corpus pipeline end-to-end.
  *
- *   corpus (extracted.json)
- *     → store build (5 pillars, R4-correct usages throughout)
- *     → Gate 1 (production audit(), error-clean)
+ *   corpus (extracted.json) + prose-approved-modes.json (CONOPS mode fixture)
+ *     → composeIR (two-layer IR: extracted + approved prose modes)
+ *     → store build (6 pillars: req, struct, behavioral, decompose, trace, state)
+ *     → Gate 1 (production audit(), error-clean, approved prose ids in resolution set)
  *     → SysML v2 export (angars-full.sysml)
  *     → Gate 2 (grammar validator, exit-2-on-missing-venv = HARD FAIL)
- *     → view-spec JSON (e2e-views.json for Plan 03 renderer)
+ *     → view-spec JSON (e2e-views.json for Plan 03 renderer, incl. state view)
  *     → run report (E2E-REPORT.md + stdout)
+ *
+ * Pillar 6 (State) requires prose-approved-modes.json (gitignored, CONOPS-grounded).
+ * If the file is absent, Pillar 6 is silently skipped (no state view emitted).
  *
  * Usage:
  *   pnpm tsx scripts/e2e-proof.ts              # full pipeline
@@ -27,9 +31,9 @@ import { execFileSync } from "node:child_process";
 import { FileStore } from "../packages/mcp-server/src/file-store.js";
 import { serializeToSysml } from "../packages/mcp-server/src/utils/sysml-serializer.js";
 import { audit } from "../packages/mcp-server/src/audit/index.js";
-import { loadCorpus } from "../packages/mcp-server/src/audit/corpus.js";
+import { composeIR } from "@sysml-bridge/ir";
 import type { SysmlElement, SysmlRelationship } from "../packages/mcp-server/src/types/sysml-elements.js";
-import type { Extracted } from "@sysml-bridge/ir";
+import type { Extracted, ProseComposedIR } from "@sysml-bridge/ir";
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -39,6 +43,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
 
 const EXTRACTED_JSON = path.join(REPO_ROOT, "examples/angars/model/extracted.json");
+// prose-approved-modes.json: gitignored CONOPS-grounded mode fixture (C10/C11).
+// When absent, Pillar 6 is skipped and no state view is emitted.
+const PROSE_APPROVED_MODES_JSON = path.join(REPO_ROOT, "examples/angars/model/prose-approved-modes.json");
 const STORE_DIR =
   process.env.SYSML_BRIDGE_E2E_STORE_DIR ??
   path.join(REPO_ROOT, "examples/angars/model/.store-e2e");
@@ -114,9 +121,16 @@ async function main(): Promise<void> {
   const pipelineStart = Date.now();
   console.log("=== ANGARS Full Corpus E2E Proof Pipeline ===\n");
 
-  // ── Load corpus ──────────────────────────────────────────────────────────
+  // ── Load corpus via composeIR (two-layer: extracted + optional prose modes) ──
   console.log("Loading corpus from", EXTRACTED_JSON);
-  const corpus = await loadCorpus(EXTRACTED_JSON);
+  const hasModes = fs.existsSync(PROSE_APPROVED_MODES_JSON);
+  const composed: ProseComposedIR = await composeIR(
+    EXTRACTED_JSON,
+    hasModes ? PROSE_APPROVED_MODES_JSON : undefined,
+  );
+  const corpus = composed.extracted;
+  const approvedModes = composed.proseEntries.filter((e) => e.kind === "mode");
+  const approvedTransitions = composed.proseEntries.filter((e) => e.kind === "modeTransition");
   console.log(
     `Corpus loaded: needs=${corpus.needs.length} reqs=${corpus.requirements.length} ` +
     `functions=${corpus.functions.length} components=${corpus.components.length} ` +
@@ -124,6 +138,15 @@ async function main(): Promise<void> {
     `kpps=${corpus.kpps.length} behaviorDecomp=${corpus.behaviorDecomp.length} ` +
     `satisfies=${corpus.satisfies.length} allocations=${corpus.allocations.length}\n`
   );
+  if (hasModes) {
+    console.log(
+      `Prose modes loaded: ${approvedModes.length} mode entries, ` +
+      `${approvedTransitions.length} modeTransition entries ` +
+      `(${composed.approvedProseIds.size} approved prose ids in resolution set)`
+    );
+  } else {
+    console.log("  prose-approved-modes.json absent — Pillar 6 (state) will be skipped");
+  }
 
   // ── Fresh store ──────────────────────────────────────────────────────────
   if (fs.existsSync(STORE_DIR)) {
@@ -756,6 +779,98 @@ async function main(): Promise<void> {
   assertCount("satisfy edges (resolvable)", satisfyCount, 110); // corpus anomaly: 44 unresolvable
 
   // ─────────────────────────────────────────────────────────────────────────
+  // PILLAR 6 — State Machine (corpus-grounded; CONOPS approved modes only)
+  // ─────────────────────────────────────────────────────────────────────────
+  // C10 (neg): every state/transition provenanceSourceId is an approved prose entry id.
+  // C11: composeIR → build (incl. state pillar) → Gate1 0 error → export → Gate2 0 errors.
+  //
+  // STATE MACHINE HONESTY RULE (do not violate):
+  //   States are built ONLY from approved prose mode entries (kind:'mode').
+  //   Transitions are built ONLY from approved prose modeTransition entries.
+  //   Every element's provenanceSourceId = the approved prose entry id.
+  //   If the fixture is absent or has 0 modes, no state elements are created.
+  //
+  // R3: StateDefinition/StateUsage/TransitionUsage are NOT verify-edges; `verify`
+  //     is illegal here. States carry only `provenanceSourceId` attributes.
+  // R4: Not applicable (state machine elements are not trace operands).
+  console.log("\n=== Pillar 6: State Machine (CONOPS-grounded) ===");
+
+  let statePkgId: string | null = null;
+  let stateDefId: string | null = null;
+  const stateDefName = "ANGARS Operational Modes";
+  const modeNkToUsageId = new Map<string, string>(); // prose entry id → StateUsage id
+
+  if (approvedModes.length === 0) {
+    console.log("  No approved mode entries — Pillar 6 skipped (honest thin machine).");
+    console.log("  No 'state' view-spec entry will be emitted.");
+  } else {
+    // Package
+    const statePkg = await store.createElement("Package", "ANGARS States", {});
+    statePkgId = statePkg.id;
+    console.log(`  Package: ANGARS States (${statePkgId})`);
+
+    // StateDefinition — one top-level state def for the ANGARS operational mode machine
+    const stateDef = await store.createElement("StateDefinition", stateDefName, {
+      provenanceSourceId: "model-asserted",
+      owner: statePkgId,
+    });
+    stateDefId = stateDef.id;
+    console.log(`  StateDefinition: "${stateDefName}" (${stateDefId})`);
+
+    // StateUsage per approved mode — every provenanceSourceId = approved prose entry id
+    for (const mode of approvedModes) {
+      const modeName = (mode.fields as Record<string, unknown>).name as string;
+      const el = await store.createElement("StateUsage", modeName, {
+        provenanceSourceId: mode.id, // approved prose entry id → resolves in Gate1
+        owner: stateDefId,
+      });
+      modeNkToUsageId.set(mode.id, el.id);
+      console.log(`  StateUsage: "${modeName}" provenance=${mode.id} (${el.id})`);
+    }
+
+    // TransitionUsage per approved modeTransition — every provenanceSourceId = approved prose entry id
+    let transitionCount = 0;
+    for (const trans of approvedTransitions) {
+      const fromModeName = (trans.fields as Record<string, unknown>).fromMode as string;
+      const toModeName = (trans.fields as Record<string, unknown>).toMode as string;
+
+      // Resolve fromMode/toMode usage ids by matching name against approvedModes
+      const fromMode = approvedModes.find(
+        (m) => (m.fields as Record<string, unknown>).name === fromModeName
+      );
+      const toMode = approvedModes.find(
+        (m) => (m.fields as Record<string, unknown>).name === toModeName
+      );
+      const fromUsageId = fromMode ? modeNkToUsageId.get(fromMode.id) : undefined;
+      const toUsageId = toMode ? modeNkToUsageId.get(toMode.id) : undefined;
+
+      if (!fromUsageId || !toUsageId) {
+        console.warn(
+          `  WARN: modeTransition ${trans.id} could not resolve endpoints ` +
+          `(from="${fromModeName}" to="${toModeName}") — skipped.`
+        );
+        continue;
+      }
+
+      await store.createElement("TransitionUsage", "", {
+        provenanceSourceId: trans.id, // approved prose entry id
+        source: [{ "@id": fromUsageId }],
+        target: [{ "@id": toUsageId }],
+        owner: stateDefId,
+      });
+      transitionCount++;
+      console.log(
+        `  TransitionUsage: "${fromModeName}" → "${toModeName}" provenance=${trans.id}`
+      );
+    }
+
+    console.log(
+      `  Pillar 6: ${approvedModes.length} StateUsage(s), ` +
+      `${transitionCount} TransitionUsage(s) — all provenanceSourceId = approved prose entry id.`
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // R4 self-check: verify all trace operands are Usage-typed
   // ─────────────────────────────────────────────────────────────────────────
   console.log("\n=== R4 Self-Check (trace operand type check) ===");
@@ -843,7 +958,12 @@ async function main(): Promise<void> {
       !Array.isArray((e.raw as Record<string, unknown>).target)
   );
 
-  const auditResult = audit(structuralElementsForAudit, allRelationships, corpus);
+  // Pass ProseComposedIR when prose modes are available so approved prose ids
+  // (mode/modeTransition provenanceSourceIds) are included in the GATE03
+  // resolution set — preventing GATE03-unresolvable-provenance errors on Pillar 6.
+  // When no prose layer, `composed.proseEntries` is [] and approvedProseIds is empty,
+  // so audit() falls back through the ProseComposedIR path cleanly.
+  const auditResult = audit(structuralElementsForAudit, allRelationships, composed);
   const { findings, fidelity, matrix } = auditResult;
 
   // Per-ruleId finding counts
@@ -915,6 +1035,9 @@ async function main(): Promise<void> {
     "FeatureMembership",
     "Succession",
     "FlowConnectionUsage",
+    // TransitionUsage (Pillar 6 state transitions): element-shaped, source/target arrays.
+    // Treated identically to Succession — included in both elements and rels arrays.
+    "TransitionUsage",
   ]);
 
   const structuralElements = allElements.filter((e) => !TRACE_REL_TYPES.has(e.type));
@@ -950,19 +1073,24 @@ async function main(): Promise<void> {
   // We include FlowConnectionUsage in structuralElements since they carry sourceEnd/targetEnd.
   const flowElements = allElements.filter((e) => e.type === "FlowConnectionUsage");
   const successionElements = allElements.filter((e) => e.type === "Succession");
+  // TransitionUsage (Pillar 6): element-shaped with source/target arrays, like Succession.
+  const transitionElements = allElements.filter((e) => e.type === "TransitionUsage");
 
   // Build full element list for serialization:
-  // - structural elements (packages, defs, usages)
+  // - structural elements (packages, defs, usages — includes StateDefinition, StateUsage)
   // - flow elements (element-shaped nested rels)
   // - succession elements (element-shaped or relationship-shaped)
+  // - transition elements (Pillar 6 state transitions, same shape as Succession)
   const elementsForSerialization = [
     ...structuralElements,
     ...flowElements,
     ...successionElements,
+    ...transitionElements,
   ];
 
   // All relationships for serialization: trace rels (satisfy/derive/alloc) + verify
-  // Succession rels are already handled via element-shape if they carry source/target arrays
+  // Succession and TransitionUsage rels passed as rel-shaped so serializer can emit
+  // `first X then Y;` / `transition first X then Y;` inside their owner's body.
   const successionRels: SysmlRelationship[] = relElements
     .filter((e) => e.type === "Succession")
     .map((e) => ({
@@ -973,7 +1101,17 @@ async function main(): Promise<void> {
       raw: e.raw,
     }));
 
-  const allSerializeRels = [...relationships, ...verifyRels, ...successionRels];
+  const transitionRels: SysmlRelationship[] = relElements
+    .filter((e) => e.type === "TransitionUsage")
+    .map((e) => ({
+      id: e.id,
+      type: e.type,
+      sourceIds: idsFrom(e.raw.source),
+      targetIds: idsFrom(e.raw.target),
+      raw: e.raw,
+    }));
+
+  const allSerializeRels = [...relationships, ...verifyRels, ...successionRels, ...transitionRels];
 
   const sysmlText = serializeToSysml(elementsForSerialization, allSerializeRels);
   fs.mkdirSync(path.dirname(OUTPUT_SYSML), { recursive: true });
@@ -1027,6 +1165,11 @@ async function main(): Promise<void> {
     frame_label: "action",
   }));
 
+  // State view: emit ONLY when Pillar 6 produced modes (corpus-grounded, non-zero).
+  const stateViewSpec = approvedModes.length > 0
+    ? [{ file_stem: "e2e-state", context_name: stateDefName, kind: "state", frame_label: "state" }]
+    : [];
+
   const viewSpec = [
     { file_stem: "e2e-bdd", context_name: "ANGARS Structure", kind: "bdd", frame_label: "bdd" },
     { file_stem: "e2e-ibd-system", context_name: "ANGARS System", kind: "interconnection", frame_label: "interconnection" },
@@ -1035,13 +1178,17 @@ async function main(): Promise<void> {
     // No "requirements"/"traceability" graph views: at 182 requirements a flat
     // graph renders ~69k px wide — unusable. The requirements TABLE
     // (requirements-table.ts) and the Gate-1 coverage matrix are those views.
-    // No "state" entry — corpus carries no state-machine source data (mbse-build:
-    // "state where corpus-supported"). Fabricating states violates no-fabrication rule.
+    // State view: present only when Pillar 6 produced corpus-grounded modes.
+    ...stateViewSpec,
   ];
 
   fs.writeFileSync(OUTPUT_VIEWS, JSON.stringify(viewSpec, null, 2), "utf8");
   console.log(`  Written: ${OUTPUT_VIEWS} (${viewSpec.length} entries)`);
-  console.log(`  No 'state' entry: corpus carries no state-machine data — fabricating states is prohibited.`);
+  if (approvedModes.length > 0) {
+    console.log(`  'state' entry present: ${approvedModes.length} CONOPS-grounded modes, ${approvedTransitions.length} transitions.`);
+  } else {
+    console.log(`  No 'state' entry: prose-approved-modes.json absent or 0 approved modes.`);
+  }
   console.log(`  No requirements/traceability graph entries: replaced by the requirements table + coverage matrix.`);
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1075,6 +1222,12 @@ async function main(): Promise<void> {
     `| 5 Trace | SatisfyRequirementUsage (corpus anomaly, unresolvable) | ${satisfyUnresolved} |`,
     `| 5 Trace | VerificationCaseUsage | ${distinctMethods.length} |`,
     `| 5 Trace | VerifyRequirementUsage | ${verifyEdgeCount} |`,
+    ...(approvedModes.length > 0 ? [
+      `| 6 State | StateUsage (CONOPS-grounded modes) | ${approvedModes.length} |`,
+      `| 6 State | TransitionUsage | ${approvedTransitions.length} |`,
+    ] : [
+      `| 6 State | (skipped — prose-approved-modes.json absent) | 0 |`,
+    ]),
     `| Total | store totalElements | ${state2.totalElements} |`,
     ``,
     `## Gate 1 Findings`,
@@ -1116,7 +1269,7 @@ async function main(): Promise<void> {
     `## View Spec`,
     ``,
     `Written to: ${OUTPUT_VIEWS}`,
-    `Entries: ${viewSpec.length} (no 'state' entry — corpus has no state-machine data)`,
+    `Entries: ${viewSpec.length}${approvedModes.length > 0 ? ` (incl. 'state' entry — ${approvedModes.length} CONOPS-grounded modes)` : " (no 'state' entry — prose-approved-modes.json absent)"}`,
     ``,
     ...(sliceReport.length > 0 ? [
       `## Cameo CE Cap Assessment`,
@@ -1150,6 +1303,11 @@ async function main(): Promise<void> {
   console.log(`  L2=${l2Functions.length} leaves=${l3Functions.length}`);
   console.log(`  satisfy=${satisfyCount} (corpus anomaly: ${satisfyUnresolved} unresolvable)`);
   console.log(`  flows(sub/comp/func)=${subN2FlowCount}/${compN2FlowCount}/${funcN2FlowCount}`);
+  if (approvedModes.length > 0) {
+    console.log(`  state: ${approvedModes.length} modes + ${approvedTransitions.length} transitions (CONOPS-grounded)`);
+  } else {
+    console.log(`  state: skipped (prose-approved-modes.json absent)`);
+  }
   console.log(`  totalElements=${state2.totalElements}`);
   console.log(`  Gate 1: PASS (0 error findings)`);
   console.log(`  fabrications=0`);
