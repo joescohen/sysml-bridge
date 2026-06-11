@@ -3,6 +3,13 @@ export type { Extracted } from "./schema.js";
 export { stableId } from "./stable-id.js";
 export { ProseApprovedEntrySchema, composeIR } from "./prose-approved.js";
 export type { ProseApprovedEntry, ProseComposedIR } from "./prose-approved.js";
+export {
+  appendApproval,
+  recordRejection,
+  isApproved,
+  isRejected,
+} from "./approval-helpers.js";
+export type { CandidateEntry } from "./approval-helpers.js";
 export { parseNeeds, parseActivityId, stripIdPrefix } from "./extract/parsers.js";
 export { assertCount } from "./extract/counts.js";
 export { extractN2Triples, assertSpotCheck, N2_ROW_IS_SOURCE } from "./extract/n2.js";

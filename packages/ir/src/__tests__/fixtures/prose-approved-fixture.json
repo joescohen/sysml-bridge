@@ -1,0 +1,64 @@
+{
+  "entries": [
+    {
+      "id": "prose-adfdec08f08f3d91",
+      "kind": "requirement",
+      "fields": {
+        "naturalKey": "ASPEC-PLAIN-1",
+        "name": "Plain Chunk 1",
+        "statement": "[Synthetic statement for fixture entry 1 — real chunk from ANGARS ASPEC]"
+      },
+      "citation": {
+        "docId": "angars-aspec-appendix-g",
+        "docSha256": "aa1fb0130f2632e1be256e4a024b1232c1f425d774a41e389cdcd6e6b9734012",
+        "chunkId": "a4845108f5366629fc25e81c4a20d898",
+        "sectionPath": "ANGARS ASPEC",
+        "quote": "[Synthetic quote — chunk a4845108f5366629fc25e81c4a20d898 from ASPEC page 1]"
+      },
+      "approvedBy": "fixture-generator",
+      "approvedAt": "2026-06-10T00:00:00.000Z",
+      "candidateId": "candidate-aspec-plain-1",
+      "status": "approved"
+    },
+    {
+      "id": "prose-47a29996cc82ff5b",
+      "kind": "requirement",
+      "fields": {
+        "naturalKey": "ASPEC-PLAIN-2",
+        "name": "Plain Chunk 2",
+        "statement": "[Synthetic statement for fixture entry 2 — real chunk from ANGARS ASPEC]"
+      },
+      "citation": {
+        "docId": "angars-aspec-appendix-g",
+        "docSha256": "aa1fb0130f2632e1be256e4a024b1232c1f425d774a41e389cdcd6e6b9734012",
+        "chunkId": "e6b7b60cfc8881b559bf4ce2cbd4318c",
+        "sectionPath": "ANGARS ASPEC",
+        "quote": "[Synthetic quote — chunk e6b7b60cfc8881b559bf4ce2cbd4318c from ASPEC table of contents]"
+      },
+      "approvedBy": "fixture-generator",
+      "approvedAt": "2026-06-10T00:00:00.000Z",
+      "candidateId": "candidate-aspec-plain-2",
+      "status": "approved"
+    },
+    {
+      "id": "prose-059a10a8d9c7e389",
+      "kind": "requirement",
+      "fields": {
+        "naturalKey": "ASPEC-PLAIN-3",
+        "name": "Plain Chunk 3",
+        "statement": "[Synthetic statement for fixture entry 3 — real chunk from ANGARS ASPEC]"
+      },
+      "citation": {
+        "docId": "angars-aspec-appendix-g",
+        "docSha256": "aa1fb0130f2632e1be256e4a024b1232c1f425d774a41e389cdcd6e6b9734012",
+        "chunkId": "2e1eb28fd38997c88ab6c20af49131de",
+        "sectionPath": "ANGARS ASPEC",
+        "quote": "[Synthetic quote — chunk 2e1eb28fd38997c88ab6c20af49131de from ASPEC appendix section]"
+      },
+      "approvedBy": "fixture-generator",
+      "approvedAt": "2026-06-10T00:00:00.000Z",
+      "candidateId": "candidate-aspec-plain-3",
+      "status": "approved"
+    }
+  ]
+}
