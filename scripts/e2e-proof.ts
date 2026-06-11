@@ -663,8 +663,61 @@ async function main(): Promise<void> {
     }
   }
 
+  // ── Inferred control-flow (F8 controlJoin): human-approved Succession edges ──
+  // Each approved controlJoin entry's source/target are two leaf L3 ActionUsages
+  // that share an L2 parent ActionDefinition. We emit a Succession between them
+  // (owner = the shared L2 def) so `first X then Y;` renders inside the activity
+  // body. provenanceSourceId = the inferred entry id → resolves in Gate-1 via
+  // composed.approvedInferredIds (no GATE03). R3/R4: a Succession is not a verify
+  // edge and carries no def operand — discipline holds.
+  const approvedControlJoins = approvedInferredEntries.filter(
+    (e) => e.relationFamily === "controlJoin",
+  );
+  let inferredSuccessionCount = 0;
+  let inferredSuccessionUnresolved = 0;
+  for (const entry of approvedControlJoins) {
+    const srcNk = funcIdToNk.get(entry.sourceId);
+    const tgtNk = funcIdToNk.get(entry.targetId);
+    if (!srcNk || !tgtNk) {
+      console.warn(`  WARN: controlJoin ${entry.id} endpoint not in functions[] — skipped`);
+      inferredSuccessionUnresolved++;
+      continue;
+    }
+    const srcL2 = srcNk.split(".")[0]!;
+    const tgtL2 = tgtNk.split(".")[0]!;
+    if (srcL2 !== tgtL2) {
+      console.warn(`  WARN: controlJoin ${entry.id} crosses L2 boundary (${srcL2} vs ${tgtL2}) — skipped`);
+      inferredSuccessionUnresolved++;
+      continue;
+    }
+    const parentElemId = funcNkToElemId.get(srcL2);
+    const srcElemId = funcNkToElemId.get(srcNk);
+    const tgtElemId = funcNkToElemId.get(tgtNk);
+    if (!parentElemId || !srcElemId || !tgtElemId) {
+      console.warn(`  WARN: controlJoin ${entry.id} unresolved elem ids — skipped`);
+      inferredSuccessionUnresolved++;
+      continue;
+    }
+    await store.createElement("Succession", "", {
+      source: [{ "@id": srcElemId }],
+      target: [{ "@id": tgtElemId }],
+      owner: parentElemId,
+      provenanceSourceId: entry.id, // approved inferred id → Gate-1-resolvable
+    });
+    inferredSuccessionCount++;
+    successionCount++;
+    flowEdgesByFunc.set(srcL2, (flowEdgesByFunc.get(srcL2) ?? 0) + 1);
+    console.log(`  Inferred Succession: ${srcNk} -> ${tgtNk} (owner ${srcL2}) provenance=${entry.id}`);
+  }
+  if (approvedControlJoins.length > 0) {
+    console.log(
+      `  Inferred control joins: ${inferredSuccessionCount} Succession(s) built, ` +
+      `${inferredSuccessionUnresolved} unresolved (skipped).`
+    );
+  }
+
   // Report per-function corpus-stated flow edge counts
-  console.log(`  Control flow (corpus-stated only): ${successionCount} Succession edges, ${controlNodeCount} control nodes`);
+  console.log(`  Control flow (corpus-stated ${successionCount - inferredSuccessionCount} + inferred ${inferredSuccessionCount}): ${successionCount} Succession edges, ${controlNodeCount} control nodes`);
   console.log(`  Unresolved flow refs: ${unresolvedFlowRefs}`);
   console.log("  Per-function corpus-stated flow edges:");
   for (const l2 of l2Functions) {
@@ -1116,9 +1169,60 @@ async function main(): Promise<void> {
       );
     }
 
+    // ── Inferred mode-membership (F8 modeMembership): human-approved `do` members ──
+    // Each approved modeMembership entry binds an L3 leaf function (sourceId) to a
+    // prose mode (targetId → StateUsage). We emit a StateActionMembership rel from
+    // the StateUsage to the function, carrying a camelCase doRef so the serializer
+    // emits `do <fn>;` inside the state body (validated clean; rendered by the
+    // decisym viewer's do-compartment parse). provenanceSourceId = inferred entry
+    // id → Gate-1-resolvable. R3/R4 N/A (a do-member is not a verify/trace edge).
+    const approvedModeMemberships = approvedInferredEntries.filter(
+      (e) => e.relationFamily === "modeMembership",
+    );
+    let inferredModeMemberCount = 0;
+    let inferredModeMemberUnresolved = 0;
+    for (const entry of approvedModeMemberships) {
+      const srcNk = funcIdToNk.get(entry.sourceId);
+      const stateUsageId = modeNkToUsageId.get(entry.targetId);
+      const srcElemId = srcNk ? funcNkToElemId.get(srcNk) : undefined;
+      const srcFn = srcNk ? corpus.functions.find((f) => f.naturalKey === srcNk) : undefined;
+      if (!stateUsageId || !srcElemId || !srcFn) {
+        console.warn(
+          `  WARN: modeMembership ${entry.id} unresolved ` +
+          `(src=${entry.sourceId}->${srcNk ?? "?"}, mode=${entry.targetId}->${stateUsageId ?? "MISSING"}) — skipped.`
+        );
+        inferredModeMemberUnresolved++;
+        continue;
+      }
+      // doRef = the raw L3 function name; the serializer quoteName's it, so
+      // names with spaces/`&` (e.g. "Monitor Flow & Stability") emit as
+      // `do 'Monitor Flow & Stability';` (Gate-2 clean, decisym-rendered).
+      const doRef = srcFn.name;
+      await store.createElement("StateActionMembership", "", {
+        provenanceSourceId: entry.id, // approved inferred id → Gate-1-resolvable
+        source: [{ "@id": stateUsageId }],
+        target: [{ "@id": srcElemId }],
+        doRef,
+        owner: stateDefId,
+      });
+      inferredModeMemberCount++;
+      const modeName = (approvedModes.find((m) => m.id === entry.targetId)
+        ?.fields as Record<string, unknown> | undefined)?.name;
+      console.log(
+        `  StateActionMembership: do ${doRef} in "${modeName}" provenance=${entry.id}`
+      );
+    }
+    if (approvedModeMemberships.length > 0) {
+      console.log(
+        `  Inferred mode memberships: ${inferredModeMemberCount} do-member(s) built, ` +
+        `${inferredModeMemberUnresolved} unresolved (skipped).`
+      );
+    }
+
     console.log(
       `  Pillar 6: ${approvedModes.length} StateUsage(s), ` +
-      `${transitionCount} TransitionUsage(s) — all provenanceSourceId = approved prose entry id.`
+      `${transitionCount} TransitionUsage(s), ${inferredModeMemberCount} inferred do-member(s) ` +
+      `— all provenanceSourceId = approved prose/inferred entry id.`
     );
   }
 
@@ -1303,13 +1407,29 @@ async function main(): Promise<void> {
     // TransitionUsage (Pillar 6 state transitions): element-shaped, source/target arrays.
     // Treated identically to Succession — included in both elements and rels arrays.
     "TransitionUsage",
+    // StateActionMembership (Pillar 6 inferred do-members): relationship-shaped,
+    // emitted as `do <ref>;` inside the StateUsage body by the serializer. Kept out
+    // of structuralElements (no standalone element) and passed as a relationship.
+    "StateActionMembership",
   ]);
 
   const structuralElements = allElements.filter((e) => !TRACE_REL_TYPES.has(e.type));
   const relElements = allElements.filter((e) => TRACE_REL_TYPES.has(e.type));
 
+  // Base relationships array. EXCLUDE:
+  //  - FeatureMembership: nesting carried by ownerId (not a trace line)
+  //  - Succession / TransitionUsage / StateActionMembership: each has its OWN
+  //    dedicated rel array (successionRels/transitionRels/stateActionRels) that is
+  //    concatenated into allSerializeRels below. Including them here too would
+  //    double-emit their nested `first/then` / `transition` / `do` statements.
+  const DEDICATED_REL_TYPES = new Set([
+    "FeatureMembership",
+    "Succession",
+    "TransitionUsage",
+    "StateActionMembership",
+  ]);
   const relationships: SysmlRelationship[] = relElements
-    .filter((e) => e.type !== "FeatureMembership") // nesting carried by ownerId
+    .filter((e) => !DEDICATED_REL_TYPES.has(e.type))
     .map((e) => ({
       id: e.id,
       type: e.type,
@@ -1337,9 +1457,8 @@ async function main(): Promise<void> {
   // (it reads e.raw.sourceEnd + e.raw.targetEnd and suppresses the element).
   // We include FlowConnectionUsage in structuralElements since they carry sourceEnd/targetEnd.
   const flowElements = allElements.filter((e) => e.type === "FlowConnectionUsage");
-  const successionElements = allElements.filter((e) => e.type === "Succession");
-  // TransitionUsage (Pillar 6): element-shaped with source/target arrays, like Succession.
-  const transitionElements = allElements.filter((e) => e.type === "TransitionUsage");
+  // Succession / TransitionUsage are emitted purely as nested statements (see
+  // elementsForSerialization note below) — no separate element array is needed here.
   // Inferred AllocationUsage elements (Pillar 5b): NAMED usages carrying an approved
   // inferred provenanceSourceId. They must appear in the element list (not just the
   // relationship list) so the serializer emits the named `allocation '<name>';` usage
@@ -1358,14 +1477,18 @@ async function main(): Promise<void> {
   // Build full element list for serialization:
   // - structural elements (packages, defs, usages — includes StateDefinition, StateUsage)
   // - flow elements (element-shaped nested rels)
-  // - succession elements (element-shaped or relationship-shaped)
-  // - transition elements (Pillar 6 state transitions, same shape as Succession)
   // - inferred allocation elements (Pillar 5b metatag anchors)
+  //
+  // Succession / TransitionUsage are NOT passed as elements: they are emitted PURELY
+  // as nested statements (`first X then Y;` / `transition first X then Y;`) via the
+  // successionRels/transitionRels relationship arrays. Passing them as elements too
+  // caused the serializer to additionally emit a spurious bare `Succession;` /
+  // `Transition;` child declaration alongside the real statement. Endpoint resolution
+  // for the nested statement uses the ActionUsage/StateUsage element ids (already in
+  // structuralElements), so the relationship element itself is not needed here.
   const elementsForSerialization = [
     ...structuralElements,
     ...flowElements,
-    ...successionElements,
-    ...transitionElements,
     ...inferredAllocationElements,
   ];
 
@@ -1392,7 +1515,25 @@ async function main(): Promise<void> {
       raw: e.raw,
     }));
 
-  const allSerializeRels = [...relationships, ...verifyRels, ...successionRels, ...transitionRels];
+  // StateActionMembership rels (Pillar 6 inferred do-members): passed as
+  // relationships so the serializer emits `do <doRef>;` inside the StateUsage body.
+  const stateActionRels: SysmlRelationship[] = relElements
+    .filter((e) => e.type === "StateActionMembership")
+    .map((e) => ({
+      id: e.id,
+      type: e.type,
+      sourceIds: idsFrom(e.raw.source),
+      targetIds: idsFrom(e.raw.target),
+      raw: e.raw,
+    }));
+
+  const allSerializeRels = [
+    ...relationships,
+    ...verifyRels,
+    ...successionRels,
+    ...transitionRels,
+    ...stateActionRels,
+  ];
 
   // Pass approved inferred entries so the serializer emits the InferenceProvenance
   // metatag def (once) + per-element `metadata InferenceProvenance about '<name>' { ... }`

@@ -516,6 +516,30 @@ export function serializeToSysml(
     });
   }
 
+  // ----- State action-membership relationships. A `StateActionMembership` rel
+  // whose SOURCE is a StateUsage/StateDefinition emits `do <targetName>;` inside
+  // that state's body — the state-behavior `do` compartment member (validated:
+  // `do <ref>;` and `do '<quoted name>';` both parse inside a state body; rendered
+  // by the decisym viewer's entry/do/exit compartment parse, which strips quotes).
+  // The reference is quoteName'd so function names with spaces/`&` (e.g. "Monitor
+  // Flow & Stability") become `do 'Monitor Flow & Stability';` rather than an
+  // invalid bare token. Merged into nestedByOwner so it flows through the same
+  // body-emission path.
+  for (const rel of relationships) {
+    if (rel.type !== "StateActionMembership") continue;
+    const srcId = rel.sourceIds[0];
+    if (srcId === undefined || !elementIds.has(srcId)) continue;
+    const rawDoRef =
+      typeof rel.raw?.doRef === "string" && rel.raw.doRef.length > 0
+        ? (rel.raw.doRef as string)
+        : refNameRaw(rel.targetIds[0], elementById);
+    if (rawDoRef === null) continue;
+    addNested(nestedByOwner, {
+      ownerId: srcId,
+      text: `do ${quoteName(rawDoRef)};`,
+    });
+  }
+
   // Group non-suppressed elements by owner id ONCE, so each element's children
   // are an O(1) lookup instead of a full O(n) re-scan per recursion level.
   // Built after suppressedElementIds is finalized; insertion order mirrors the
@@ -828,6 +852,18 @@ function refName(
   if (!element) return null;
   if (element.name === null) return null;
   return quoteName(element.name);
+}
+
+/** Like refName but returns the RAW (unquoted) name, for callers that apply
+ *  their own quoting (e.g. the `do <ref>;` state-member emitter). */
+function refNameRaw(
+  id: string | undefined,
+  elementById: Map<string, SysmlElement>
+): string | null {
+  if (id === undefined) return null;
+  const element = elementById.get(id);
+  if (!element) return null;
+  return element.name;
 }
 
 // ---------------------------------------------------------------------------

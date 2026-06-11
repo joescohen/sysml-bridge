@@ -243,6 +243,55 @@ describe("T2 — control node emission (decide/fork/join/merge)", () => {
     expect(out).not.toContain(" if ");
   });
 
+  it("emits a state 'do <ref>;' member for a StateActionMembership rel (bare identifier)", () => {
+    const stateDef = el({ id: "sd1", type: "StateDefinition", name: "Modes", ownerId: null });
+    const mode = el({ id: "st1", type: "StateUsage", name: "greet", ownerId: "sd1" });
+    const action = el({ id: "ac1", type: "ActionUsage", name: "monitorProximity", ownerId: "fn0" });
+    const rel: SysmlRelationship = {
+      id: "sam1",
+      type: "StateActionMembership",
+      sourceIds: ["st1"],
+      targetIds: ["ac1"],
+      raw: { doRef: "monitorProximity", ownerId: "sd1" },
+    };
+    const out = serializeToSysml([stateDef, mode, action], [rel]);
+    expect(out).toContain("state greet {");
+    expect(out).toContain("do monitorProximity;");
+    // No spurious bare relationship-element declaration.
+    expect(out).not.toContain("StateActionMembership;");
+  });
+
+  it("quotes a state 'do' ref whose name is not a valid identifier (spaces / '&')", () => {
+    const stateDef = el({ id: "sd1", type: "StateDefinition", name: "Modes", ownerId: null });
+    const mode = el({ id: "st1", type: "StateUsage", name: "Docking and Fueling", ownerId: "sd1" });
+    const action = el({ id: "ac1", type: "ActionUsage", name: "Monitor Flow & Stability", ownerId: "fn0" });
+    const rel: SysmlRelationship = {
+      id: "sam2",
+      type: "StateActionMembership",
+      sourceIds: ["st1"],
+      targetIds: ["ac1"],
+      raw: { doRef: "Monitor Flow & Stability", ownerId: "sd1" },
+    };
+    const out = serializeToSysml([stateDef, mode, action], [rel]);
+    // The '&' and spaces force quoting so the member parses (Gate-2 clean).
+    expect(out).toContain("do 'Monitor Flow & Stability';");
+  });
+
+  it("falls back to the target element name when a StateActionMembership has no doRef", () => {
+    const stateDef = el({ id: "sd1", type: "StateDefinition", name: "Modes", ownerId: null });
+    const mode = el({ id: "st1", type: "StateUsage", name: "meet", ownerId: "sd1" });
+    const action = el({ id: "ac1", type: "ActionUsage", name: "Authenticate Aircraft", ownerId: "fn0" });
+    const rel: SysmlRelationship = {
+      id: "sam3",
+      type: "StateActionMembership",
+      sourceIds: ["st1"],
+      targetIds: ["ac1"],
+      raw: { ownerId: "sd1" }, // no doRef → resolve from target name
+    };
+    const out = serializeToSysml([stateDef, mode, action], [rel]);
+    expect(out).toContain("do 'Authenticate Aircraft';");
+  });
+
   it("emits a full control-flow fixture matching the demo: decide+fork+join+merge+guarded", () => {
     // Mirror examples/demos/activity-control-flow.sysml structure (simplified subset).
     const actionDef = el({ id: "a0", type: "ActionDefinition", name: "Refueling Request Handling", ownerId: null });
