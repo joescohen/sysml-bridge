@@ -18,6 +18,13 @@ export {
   isRejected,
 } from "./approval-helpers.js";
 export type { CandidateEntry } from "./approval-helpers.js";
+export {
+  appendInferredApproval,
+  recordInferredRejection,
+  isInferredApproved,
+  isInferredRejected,
+} from "./inferred-approval-helpers.js";
+export type { InferenceCandidate } from "./inferred-approval-helpers.js";
 export { parseNeeds, parseActivityId, stripIdPrefix } from "./extract/parsers.js";
 export { assertCount } from "./extract/counts.js";
 export { extractN2Triples, assertSpotCheck, N2_ROW_IS_SOURCE } from "./extract/n2.js";

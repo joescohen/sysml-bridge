@@ -5,9 +5,14 @@
  * the unusable 182-node requirements graph render (69k px wide).
  *
  * Columns: Req ID | Requirement | Parent Need(s) | Satisfied By (functions) |
- * Verify Method. Grouped by parent need, with per-need subtotals and
- * unsatisfied/unverified flags. Reads ONLY extracted.json (corpus ground
- * truth) — no hand-authored content.
+ * Verify Method | Provenance. Grouped by parent need, with per-need subtotals
+ * and unsatisfied/unverified flags. Reads extracted.json (corpus ground truth)
+ * as primary; augments with inferred-approved.json when present (gitignored).
+ *
+ * Provenance column values:
+ *   corpus-stated  — extracted from a corpus document (default)
+ *   inferred       — reasoning-layer approved link
+ *   asserted       — human assertion without derivation
  *
  * Output (CORPUS-DERIVED — both land in the gitignored examples/angars/model/):
  *   examples/angars/model/reports/requirements-table.md
@@ -21,7 +26,10 @@ import * as path from "path";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const IR_PATH = path.join(REPO_ROOT, "examples/angars/model/extracted.json");
+const INFERRED_PATH = path.join(REPO_ROOT, "examples/angars/model/inferred-approved.json");
 const OUT_DIR = path.join(REPO_ROOT, "examples/angars/model/reports");
+
+type ProvenanceClass = "corpus-stated" | "inferred" | "asserted";
 
 interface Need {
   id: string;
@@ -59,6 +67,34 @@ function main(): void {
     functions: Func[];
     satisfies: Satisfy[];
   };
+
+  // Load inferred-approved.json if present (gitignored; optional)
+  // Build a map: reqId → provenance class (from satisfy links in inferred layer)
+  const inferredProvenanceByReq = new Map<string, ProvenanceClass>();
+  if (fs.existsSync(INFERRED_PATH)) {
+    try {
+      const inferredData = JSON.parse(fs.readFileSync(INFERRED_PATH, "utf8")) as {
+        entries: Array<{
+          id: string;
+          relationFamily: string;
+          sourceId: string;
+          targetId: string;
+          status: string;
+        }>;
+      };
+      for (const entry of inferredData.entries) {
+        if (entry.status !== "approved") continue;
+        // allocation links (functionId → componentId) and other families
+        // — any inferred link mentioning a reqId marks it as "inferred"
+        if (entry.relationFamily === "allocation" || entry.relationFamily === "modeMembership") {
+          inferredProvenanceByReq.set(entry.sourceId, "inferred");
+          inferredProvenanceByReq.set(entry.targetId, "inferred");
+        }
+      }
+    } catch {
+      // Ignore malformed optional file
+    }
+  }
 
   const needById = new Map(ir.needs.map((n) => [n.id, n]));
   const fnById = new Map(ir.functions.map((f) => [f.id, f]));
@@ -116,8 +152,8 @@ function main(): void {
       `(${staleSatisfies} stale corpus links skipped).</p>`
   );
 
-  const header = `| Req ID | Requirement | Statement | Satisfied By (function) | Verify Method |`;
-  const sep = `|---|---|---|---|---|`;
+  const header = `| Req ID | Requirement | Statement | Satisfied By (function) | Verify Method | Provenance |`;
+  const sep = `|---|---|---|---|---|---|`;
 
   for (const need of ir.needs) {
     const reqs = reqsByNeed.get(need.id) ?? [];
@@ -137,7 +173,7 @@ function main(): void {
         `<p>${reqs.length} child requirement(s)` +
         (unsat > 0 ? ` — <span class="flag">${unsat} without a satisfying function</span>` : "") +
         `</p><table><tr><th>Req ID</th><th>Requirement</th><th>Statement</th>` +
-        `<th>Satisfied By (function)</th><th>Verify Method</th></tr>`
+        `<th>Satisfied By (function)</th><th>Verify Method</th><th>Provenance</th></tr>`
     );
     for (const r of reqs) {
       const sats = satisfiersByReq.get(r.id);
@@ -152,12 +188,16 @@ function main(): void {
       const alsoHtml = otherParents.length
         ? ` <span class="muted">(also under ${otherParents.map(esc).join(", ")})</span>`
         : "";
+      // Provenance column: inferred if any inferred-layer link mentions this req's satisfying
+      // function, otherwise corpus-stated (default)
+      const provClass: ProvenanceClass = inferredProvenanceByReq.get(r.id) ?? "corpus-stated";
       md.push(
-        `| ${r.naturalKey} | ${r.name}${alsoMd} | ${r.statement.replace(/\|/g, "\\|")} | ${satMd} | ${r.verifyMethod} |`
+        `| ${r.naturalKey} | ${r.name}${alsoMd} | ${r.statement.replace(/\|/g, "\\|")} | ${satMd} | ${r.verifyMethod} | ${provClass} |`
       );
       html.push(
         `<tr><td>${esc(r.naturalKey)}</td><td>${esc(r.name)}${alsoHtml}</td>` +
-          `<td>${esc(r.statement)}</td><td>${satHtml}</td><td>${esc(r.verifyMethod)}</td></tr>`
+          `<td>${esc(r.statement)}</td><td>${satHtml}</td><td>${esc(r.verifyMethod)}</td>` +
+          `<td>${esc(provClass)}</td></tr>`
       );
     }
     md.push("");
@@ -169,15 +209,17 @@ function main(): void {
     md.push("");
     md.push(header);
     md.push(sep);
-    html.push(`<h2>Requirements without a parent need</h2><table><tr><th>Req ID</th><th>Requirement</th><th>Statement</th><th>Satisfied By</th><th>Verify Method</th></tr>`);
+    html.push(`<h2>Requirements without a parent need</h2><table><tr><th>Req ID</th><th>Requirement</th><th>Statement</th><th>Satisfied By</th><th>Verify Method</th><th>Provenance</th></tr>`);
     for (const r of orphanReqs) {
       const sats = satisfiersByReq.get(r.id);
+      const provClass: ProvenanceClass = inferredProvenanceByReq.get(r.id) ?? "corpus-stated";
       md.push(
-        `| ${r.naturalKey} | ${r.name} | ${r.statement.replace(/\|/g, "\\|")} | ${sats ? sats.join("<br>") : "**UNSATISFIED**"} | ${r.verifyMethod} |`
+        `| ${r.naturalKey} | ${r.name} | ${r.statement.replace(/\|/g, "\\|")} | ${sats ? sats.join("<br>") : "**UNSATISFIED**"} | ${r.verifyMethod} | ${provClass} |`
       );
       html.push(
         `<tr><td>${esc(r.naturalKey)}</td><td>${esc(r.name)}</td><td>${esc(r.statement)}</td>` +
-          `<td>${sats ? sats.map(esc).join("<br>") : '<span class="flag">UNSATISFIED</span>'}</td><td>${esc(r.verifyMethod)}</td></tr>`
+          `<td>${sats ? sats.map(esc).join("<br>") : '<span class="flag">UNSATISFIED</span>'}</td><td>${esc(r.verifyMethod)}</td>` +
+          `<td>${esc(provClass)}</td></tr>`
       );
     }
     html.push(`</table>`);
