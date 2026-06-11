@@ -11,6 +11,9 @@
  *   - INFER_BUDGET_USD cap: aborts before spend if estimated cost > budget
  *   - Failure isolation: errored pair → uncertain, continues
  *   - emittedUnpremised count = 0 guaranteed (A2)
+ *   - Bounded concurrency: PROPOSE + DEBATE stages run with up to INFER_CONCURRENCY
+ *     concurrent tasks (default 8, clamp 1..16). Output ordering is deterministic
+ *     (stable by original accepted-order), regardless of completion order.
  */
 
 import { createHash } from "node:crypto";
@@ -33,6 +36,53 @@ import { generateCandidates, buildSkipSet, inferenceStableId } from "./candidate
 import { applyRelevanceFilter, resolveFamilyCap } from "./relevance-filter.js";
 import { buildContextBundle } from "./neighborhood.js";
 import { runDebate } from "./debate.js";
+
+// ── Bounded concurrency helper ────────────────────────────────────────────────
+
+/**
+ * Resolve INFER_CONCURRENCY from the environment.
+ * Default: 8. Clamped to [1, 16].
+ */
+export function resolveInferConcurrency(override?: number): number {
+  if (override !== undefined) return Math.max(1, Math.min(16, override));
+  const env = process.env["INFER_CONCURRENCY"];
+  if (env) {
+    const n = parseInt(env, 10);
+    if (Number.isFinite(n)) return Math.max(1, Math.min(16, n));
+  }
+  return 8;
+}
+
+/**
+ * Run `tasks[i]` → `T` for every index with bounded concurrency.
+ * Returns results in the original task order regardless of completion order.
+ *
+ * Implementation: a simple index-counter worker pool — no extra dependencies.
+ *   - Workers pull the next pending index atomically (JS is single-threaded,
+ *     so incrementing a shared counter is safe).
+ *   - Each task result is stored back into its original slot.
+ */
+export async function boundedPool<T>(
+  tasks: ReadonlyArray<() => Promise<T>>,
+  concurrency: number
+): Promise<T[]> {
+  const results = new Array<T>(tasks.length);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= tasks.length) return;
+      results[i] = await tasks[i]!();
+    }
+  }
+
+  const limit = Math.min(concurrency, tasks.length);
+  if (limit <= 0) return results;
+  const workers = Array.from({ length: limit }, worker);
+  await Promise.all(workers);
+  return results;
+}
 
 // ── Sentinel ─────────────────────────────────────────────────────────────────
 
@@ -124,6 +174,11 @@ export interface EngineOptions {
   familyCap?: number;
   /** Verbose logging function (defaults to console.error). */
   log?: (msg: string) => void;
+  /**
+   * Max concurrent LLM calls for propose and debate stages.
+   * Default: INFER_CONCURRENCY env, else 8. Clamped to [1, 16].
+   */
+  concurrency?: number;
 }
 
 export interface EngineResult {
@@ -264,11 +319,42 @@ export async function runInferenceEngine(
   let emittedUnpremised = 0;
   let droppedUnpremised = 0;
 
-  for (const candidate of accepted) {
-    const stats = statMap.get(candidate.relationFamily)!;
+  const concurrency = resolveInferConcurrency(options.concurrency);
+  log(`[inference] Running propose+debate with concurrency=${concurrency}`);
+
+  /**
+   * Per-candidate task: runs propose → premise check → band route → debate.
+   * Returns an optional CandidateRecord (null = skipped/error with no record).
+   * All counter mutations are deferred to the accumulation pass below to keep
+   * JS's single-threaded event loop as the sole synchroniser (no explicit locks needed).
+   */
+  type CandidateOutcome = {
+    record: CandidateRecord | null;
+    /** Deltas accumulated per-family for statMap */
+    statDelta: {
+      family: RelationFamily;
+      proposed: number;
+      droppedUnpremised: number;
+      autoRejected: number;
+      debate: number;
+      queued: number;
+    };
+    droppedUnpremised: number;
+  };
+
+  const tasks: Array<() => Promise<CandidateOutcome>> = accepted.map((candidate) => async () => {
+    const delta = {
+      family: candidate.relationFamily,
+      proposed: 0,
+      droppedUnpremised: 0,
+      autoRejected: 0,
+      debate: 0,
+      queued: 0,
+    };
+
     const context = buildContextBundle(candidate.sourceId, candidate.targetId, ir);
 
-    // ── Propose ──────────────────────────────────────────────────────────────
+    // ── Propose ────────────────────────────────────────────────────────────
     let proposal: import("./types.js").ProposalOutput | null = null;
     try {
       proposal = await provider.propose(
@@ -280,17 +366,17 @@ export async function runInferenceEngine(
     } catch (err: unknown) {
       log(`[inference] propose error for ${candidate.id}: ${err instanceof Error ? err.message : String(err)} — treating as uncertain`);
       // Failure isolation: skip this candidate (no record emitted for error)
-      continue;
+      return { record: null, statDelta: delta, droppedUnpremised: 0 };
     }
 
     if (proposal === null) {
       // Provider declined to propose — skip silently (no cost)
-      continue;
+      return { record: null, statDelta: delta, droppedUnpremised: 0 };
     }
 
-    stats.proposed++;
+    delta.proposed++;
 
-    // ── Premise validation (A2: emittedUnpremised MUST stay 0) ──────────────
+    // ── Premise validation (A2: emittedUnpremised MUST stay 0) ────────────
     const premiseCheck = validatePremises(proposal.premises, ir);
     if (!premiseCheck.valid) {
       const dropped: DroppedUnpremisedCandidate = {
@@ -301,14 +387,12 @@ export async function runInferenceEngine(
         stage: "dropped_unpremised",
         unresolvablePremises: premiseCheck.unresolvable,
       };
-      allRecords.push(dropped);
-      droppedUnpremised++;
-      // emittedUnpremised stays 0 (we dropped it, not emitted it)
       log(`[inference] dropped_unpremised: ${candidate.id} (unresolvable: ${premiseCheck.unresolvable.join(", ")})`);
-      continue;
+      delta.droppedUnpremised++;
+      return { record: dropped, statDelta: delta, droppedUnpremised: 1 };
     }
 
-    // ── Band routing (A3) ─────────────────────────────────────────────────
+    // ── Band routing (A3) ───────────────────────────────────────────────
     const band = classifyBand(proposal.confidence);
 
     if (band === "auto_rejected") {
@@ -322,15 +406,16 @@ export async function runInferenceEngine(
         premises: proposal.premises,
         rationale: proposal.rationale, // audit-only
       };
-      allRecords.push(record);
-      stats.autoRejected++;
       log(`[inference] auto_rejected: ${candidate.id} (conf=${proposal.confidence.toFixed(3)})`);
-      continue;
+      delta.autoRejected++;
+      return { record, statDelta: delta, droppedUnpremised: 0 };
     }
 
     if (band === "debate") {
-      // Run adversarial debate for mid-confidence band
-      stats.debate++;
+      // Run adversarial debate for mid-confidence band.
+      // Within a single proposal, advocate→challenger stays sequential
+      // (challenger needs the advocate summary). Parallelism is ACROSS proposals.
+      delta.debate++;
       let debateResult: import("./types.js").DebateResult;
 
       try {
@@ -359,9 +444,8 @@ export async function runInferenceEngine(
           premises: proposal.premises,
           rationale: proposal.rationale, // audit-only
         };
-        allRecords.push(record);
-        stats.autoRejected++;
-        continue;
+        delta.autoRejected++;
+        return { record, statDelta: delta, droppedUnpremised: 0 };
       }
 
       // confirmed or uncertain → queued with debate annotation
@@ -380,9 +464,8 @@ export async function runInferenceEngine(
         // Only set debateUncertain=true when the verdict is actually uncertain
         ...(debateResult.verdict === "uncertain" ? { debateUncertain: true } : {}),
       };
-      allRecords.push(record);
-      stats.queued++;
-      continue;
+      delta.queued++;
+      return { record, statDelta: delta, droppedUnpremised: 0 };
     }
 
     // band === "queued" (high confidence, no debate)
@@ -396,8 +479,25 @@ export async function runInferenceEngine(
       premises: proposal.premises,
       rationale: proposal.rationale, // audit-only
     };
-    allRecords.push(record);
-    stats.queued++;
+    delta.queued++;
+    return { record, statDelta: delta, droppedUnpremised: 0 };
+  });
+
+  // Run all tasks with bounded concurrency; results come back in original accepted order.
+  const outcomes = await boundedPool(tasks, concurrency);
+
+  // ── Accumulate results in original order (deterministic output) ───────────
+  for (const outcome of outcomes) {
+    if (outcome.record !== null) {
+      allRecords.push(outcome.record);
+    }
+    droppedUnpremised += outcome.droppedUnpremised;
+    const s = statMap.get(outcome.statDelta.family)!;
+    s.proposed += outcome.statDelta.proposed;
+    s.droppedUnpremised += outcome.statDelta.droppedUnpremised;
+    s.autoRejected += outcome.statDelta.autoRejected;
+    s.debate += outcome.statDelta.debate;
+    s.queued += outcome.statDelta.queued;
   }
 
   // ── Invariant check (defensive): emittedUnpremised MUST be 0 ─────────────

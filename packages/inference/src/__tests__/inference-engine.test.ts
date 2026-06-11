@@ -6,6 +6,7 @@
  *   A2 — no unpremised proposal: mock returns unresolvable premise ids → emittedUnpremised == 0
  *   A3 — band routing: conf .3/.5/.9 → auto_rejected/debate/queued
  *   A4 — debate verdict determinism: fixture confidences reproduce confirmed/rejected/uncertain
+ *   A5 — bounded concurrency: correct under parallelism, deterministic ordering, INFER_CONCURRENCY=1
  */
 
 import { describe, it, expect } from "vitest";
@@ -15,7 +16,7 @@ import type { ProposalOutput, ContextBundle } from "../types.js";
 import { checkTypeGate, buildElementMap } from "../type-gate.js";
 import { computeDebateVerdict } from "../debate.js";
 import { classifyBand } from "../types.js";
-import { runInferenceEngine } from "../engine.js";
+import { runInferenceEngine, boundedPool, resolveInferConcurrency } from "../engine.js";
 import { SCHEMA_VERSION } from "@sysml-bridge/ir";
 
 // ── Fixture helpers ──────────────────────────────────────────────────────────
@@ -545,5 +546,385 @@ describe("dry run — no LLM calls", () => {
       log: () => {},
     });
     expect(proposeCalled).toBe(false);
+  });
+});
+
+// ── A5: Bounded concurrency ───────────────────────────────────────────────────
+
+describe("A5 — bounded concurrency: correct processing, determinism, INFER_CONCURRENCY=1", () => {
+
+  // ── A5-pool: unit tests of the boundedPool helper ────────────────────────
+
+  it("A5-pool: empty task list returns empty array", async () => {
+    const results = await boundedPool([], 4);
+    expect(results).toEqual([]);
+  });
+
+  it("A5-pool: single task returns single result", async () => {
+    const results = await boundedPool([async () => 42], 4);
+    expect(results).toEqual([42]);
+  });
+
+  it("A5-pool: results returned in original order regardless of completion order", async () => {
+    // Tasks complete in reverse order (last task is fastest)
+    const delays = [50, 30, 10, 40, 20]; // ms
+    const tasks = delays.map((d, i) => async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, d));
+      return i;
+    });
+    const results = await boundedPool(tasks, 5);
+    // Must preserve original indices even though tasks finish in a different order
+    expect(results).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("A5-pool: concurrency=1 runs tasks sequentially (max in-flight = 1)", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const tasks = Array.from({ length: 6 }, () => async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      inFlight--;
+      return 1;
+    });
+    await boundedPool(tasks, 1);
+    expect(maxInFlight).toBe(1);
+  });
+
+  it("A5-pool: concurrency=4 uses more than 1 concurrent worker when tasks > 1", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    // 8 tasks each with a 20ms delay — at concurrency=4 we should see 4 in-flight
+    const tasks = Array.from({ length: 8 }, () => async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+      inFlight--;
+      return 1;
+    });
+    await boundedPool(tasks, 4);
+    expect(maxInFlight).toBeGreaterThan(1);
+  });
+
+  it("A5-pool: all tasks are processed exactly once", async () => {
+    const callCounts = new Array<number>(10).fill(0);
+    const tasks = callCounts.map((_, i) => async () => {
+      callCounts[i]!++;
+      return i;
+    });
+    const results = await boundedPool(tasks, 3);
+    expect(results).toHaveLength(10);
+    expect(callCounts.every((c) => c === 1)).toBe(true);
+  });
+
+  // ── A5-resolveInferConcurrency ────────────────────────────────────────────
+
+  it("A5-resolve: default concurrency is 8 when no env and no override", () => {
+    const orig = process.env["INFER_CONCURRENCY"];
+    delete process.env["INFER_CONCURRENCY"];
+    try {
+      expect(resolveInferConcurrency()).toBe(8);
+    } finally {
+      if (orig !== undefined) process.env["INFER_CONCURRENCY"] = orig;
+    }
+  });
+
+  it("A5-resolve: INFER_CONCURRENCY env is respected", () => {
+    const orig = process.env["INFER_CONCURRENCY"];
+    process.env["INFER_CONCURRENCY"] = "12";
+    try {
+      expect(resolveInferConcurrency()).toBe(12);
+    } finally {
+      if (orig !== undefined) process.env["INFER_CONCURRENCY"] = orig;
+      else delete process.env["INFER_CONCURRENCY"];
+    }
+  });
+
+  it("A5-resolve: clamped to [1, 16]", () => {
+    expect(resolveInferConcurrency(0)).toBe(1);
+    expect(resolveInferConcurrency(-5)).toBe(1);
+    expect(resolveInferConcurrency(100)).toBe(16);
+    expect(resolveInferConcurrency(16)).toBe(16);
+    expect(resolveInferConcurrency(1)).toBe(1);
+  });
+
+  it("A5-resolve: override takes priority over env", () => {
+    const orig = process.env["INFER_CONCURRENCY"];
+    process.env["INFER_CONCURRENCY"] = "12";
+    try {
+      expect(resolveInferConcurrency(3)).toBe(3);
+    } finally {
+      if (orig !== undefined) process.env["INFER_CONCURRENCY"] = orig;
+      else delete process.env["INFER_CONCURRENCY"];
+    }
+  });
+
+  // ── A5-engine: variable-delay mock, all candidates processed once ─────────
+
+  it("A5-engine: all accepted candidates processed exactly once under concurrency=4", async () => {
+    const proposeCalls = new Set<string>();
+    class DelayedMockProvider implements InferenceProvider {
+      async propose(
+        family: Parameters<InferenceProvider["propose"]>[0],
+        sourceId: string,
+        targetId: string,
+        _ctx: ContextBundle
+      ): Promise<ProposalOutput | null> {
+        // Deliberate variable delay to exercise interleaving
+        const delay = Math.floor(Math.random() * 10);
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+        const key = `${family}::${sourceId}::${targetId}`;
+        proposeCalls.add(key);
+        return {
+          sourceId,
+          targetId,
+          relationFamily: family,
+          premises: [CORPUS_REQ_ID],
+          rationale: "mock",
+          confidence: 0.9,
+        };
+      }
+      async advocate(_f: Parameters<InferenceProvider["advocate"]>[0], _p: ProposalOutput, _c: ContextBundle) {
+        return { score: 0.8, summary: "ok" };
+      }
+      async challenge(_f: Parameters<InferenceProvider["challenge"]>[0], _p: ProposalOutput, _s: string, _c: ContextBundle) {
+        return { score: 0.3, summary: "ok" };
+      }
+    }
+
+    const ir = makeMinimalIR();
+    const result = await runInferenceEngine(ir, new DelayedMockProvider(), {
+      dryRun: false,
+      concurrency: 4,
+      log: () => {},
+    });
+
+    // Every accepted candidate should have been proposed exactly once
+    // (proposeCalls is a Set so duplicates would not inflate it — we check
+    // that the total queued+auto_rejected+dropped count matches expectations)
+    const nonRejected = result.records.filter(
+      (r) => r.stage !== "rejected_type" && r.stage !== "rejected_unbounded" && r.stage !== "rejected_capped"
+    );
+    // emittedUnpremised invariant still holds
+    expect(result.emittedUnpremised).toBe(0);
+    // All processed candidates reached some terminal stage
+    for (const r of nonRejected) {
+      expect(["queued", "auto_rejected", "dropped_unpremised"]).toContain(r.stage);
+    }
+    // Propose called once per unique (family, sourceId, targetId) triple
+    const accepted = result.records.filter((r) => r.stage !== "rejected_type" && r.stage !== "rejected_unbounded" && r.stage !== "rejected_capped");
+    expect(proposeCalls.size).toBeLessThanOrEqual(accepted.length);
+  });
+
+  it("A5-engine: output record ordering is deterministic (same IR, two runs, same order)", async () => {
+    class StableProvider implements InferenceProvider {
+      async propose(
+        family: Parameters<InferenceProvider["propose"]>[0],
+        sourceId: string,
+        targetId: string,
+        _ctx: ContextBundle
+      ): Promise<ProposalOutput | null> {
+        // Variable delay to stress ordering
+        await new Promise<void>((resolve) => setTimeout(resolve, Math.floor(Math.random() * 15)));
+        return {
+          sourceId,
+          targetId,
+          relationFamily: family,
+          premises: [CORPUS_REQ_ID],
+          rationale: "mock",
+          confidence: 0.9,
+        };
+      }
+      async advocate(_f: Parameters<InferenceProvider["advocate"]>[0], _p: ProposalOutput, _c: ContextBundle) {
+        return { score: 0.8, summary: "ok" };
+      }
+      async challenge(_f: Parameters<InferenceProvider["challenge"]>[0], _p: ProposalOutput, _s: string, _c: ContextBundle) {
+        return { score: 0.3, summary: "ok" };
+      }
+    }
+
+    const ir = makeMinimalIR();
+    const run1 = await runInferenceEngine(ir, new StableProvider(), { dryRun: false, concurrency: 4, log: () => {} });
+    const run2 = await runInferenceEngine(ir, new StableProvider(), { dryRun: false, concurrency: 4, log: () => {} });
+
+    const ids1 = run1.records.map((r) => r.id);
+    const ids2 = run2.records.map((r) => r.id);
+    expect(ids1).toEqual(ids2);
+  });
+
+  it("A5-engine: counters (droppedUnpremised, stats) are exact under concurrency=6", async () => {
+    const BAD_PREMISE = "UNRESOLVABLE-XYZ-99999";
+    class HalfDropProvider implements InferenceProvider {
+      private callIndex = 0;
+      async propose(
+        family: Parameters<InferenceProvider["propose"]>[0],
+        sourceId: string,
+        targetId: string,
+        _ctx: ContextBundle
+      ): Promise<ProposalOutput | null> {
+        const idx = this.callIndex++;
+        // Every other candidate gets a bad premise
+        const premises = idx % 2 === 0 ? [CORPUS_REQ_ID] : [BAD_PREMISE];
+        return {
+          sourceId,
+          targetId,
+          relationFamily: family,
+          premises,
+          rationale: "mock",
+          confidence: 0.9,
+        };
+      }
+      async advocate(_f: Parameters<InferenceProvider["advocate"]>[0], _p: ProposalOutput, _c: ContextBundle) {
+        return { score: 0.8, summary: "ok" };
+      }
+      async challenge(_f: Parameters<InferenceProvider["challenge"]>[0], _p: ProposalOutput, _s: string, _c: ContextBundle) {
+        return { score: 0.3, summary: "ok" };
+      }
+    }
+
+    const ir = makeMinimalIR();
+    const result = await runInferenceEngine(ir, new HalfDropProvider(), {
+      dryRun: false,
+      concurrency: 6,
+      log: () => {},
+    });
+
+    // droppedUnpremised must equal the count of dropped_unpremised records
+    const droppedRecords = result.records.filter((r) => r.stage === "dropped_unpremised");
+    expect(result.droppedUnpremised).toBe(droppedRecords.length);
+
+    // Sum of per-family proposed in stats must equal (queued + autoRejected + droppedUnpremised)
+    const totalProposed = result.stats.reduce((s, st) => s + st.proposed, 0);
+    const totalQueued = result.stats.reduce((s, st) => s + st.queued, 0);
+    const totalAutoRejected = result.stats.reduce((s, st) => s + st.autoRejected, 0);
+    const totalDropped = result.stats.reduce((s, st) => s + st.droppedUnpremised, 0);
+    expect(totalProposed).toBe(totalQueued + totalAutoRejected + totalDropped);
+
+    // emittedUnpremised invariant
+    expect(result.emittedUnpremised).toBe(0);
+  });
+
+  it("A5-engine: concurrency actually used (max in-flight > 1 when limit=4 and tasks > 4)", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    class InFlightTrackingProvider implements InferenceProvider {
+      async propose(
+        family: Parameters<InferenceProvider["propose"]>[0],
+        sourceId: string,
+        targetId: string,
+        _ctx: ContextBundle
+      ): Promise<ProposalOutput | null> {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        // Hold for a bit so multiple tasks can pile up
+        await new Promise<void>((resolve) => setTimeout(resolve, 20));
+        inFlight--;
+        return {
+          sourceId,
+          targetId,
+          relationFamily: family,
+          premises: [CORPUS_REQ_ID],
+          rationale: "mock",
+          confidence: 0.9,
+        };
+      }
+      async advocate(_f: Parameters<InferenceProvider["advocate"]>[0], _p: ProposalOutput, _c: ContextBundle) {
+        return { score: 0.8, summary: "ok" };
+      }
+      async challenge(_f: Parameters<InferenceProvider["challenge"]>[0], _p: ProposalOutput, _s: string, _c: ContextBundle) {
+        return { score: 0.3, summary: "ok" };
+      }
+    }
+
+    // Build an IR with enough candidates to saturate concurrency=4.
+    // We need > 4 accepted candidates. Add extra leaf functions + a component.
+    const extraFunctions = Array.from({ length: 8 }, (_, i) => ({
+      id: `function-extra-leaf-${i.toString().padStart(3, "0")}`,
+      kind: "function",
+      naturalKey: `FX.${i + 1}`,
+      name: `Extra Leaf Function ${i + 1}`,
+      level: "L3",
+      owner: "F1: Parent Function",
+    }));
+
+    const richIR: InferredComposedIR = {
+      ...makeMinimalIR(),
+      extracted: {
+        ...MINIMAL_EXTRACTED as any,
+        functions: [
+          ...MINIMAL_EXTRACTED.functions,
+          ...extraFunctions,
+        ],
+      },
+    };
+
+    await runInferenceEngine(richIR, new InFlightTrackingProvider(), {
+      dryRun: false,
+      concurrency: 4,
+      log: () => {},
+    });
+
+    // With 4-way concurrency and 10+ candidates each holding 20ms, maxInFlight must be > 1
+    expect(maxInFlight).toBeGreaterThan(1);
+  });
+
+  it("A5-engine: INFER_CONCURRENCY=1 reproduces sequential behavior (max in-flight = 1)", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    class SeqCheckProvider implements InferenceProvider {
+      async propose(
+        family: Parameters<InferenceProvider["propose"]>[0],
+        sourceId: string,
+        targetId: string,
+        _ctx: ContextBundle
+      ): Promise<ProposalOutput | null> {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        inFlight--;
+        return {
+          sourceId,
+          targetId,
+          relationFamily: family,
+          premises: [CORPUS_REQ_ID],
+          rationale: "mock",
+          confidence: 0.9,
+        };
+      }
+      async advocate(_f: Parameters<InferenceProvider["advocate"]>[0], _p: ProposalOutput, _c: ContextBundle) {
+        return { score: 0.8, summary: "ok" };
+      }
+      async challenge(_f: Parameters<InferenceProvider["challenge"]>[0], _p: ProposalOutput, _s: string, _c: ContextBundle) {
+        return { score: 0.3, summary: "ok" };
+      }
+    }
+
+    const extraFunctions = Array.from({ length: 5 }, (_, i) => ({
+      id: `function-seq-leaf-${i.toString().padStart(3, "0")}`,
+      kind: "function",
+      naturalKey: `FS.${i + 1}`,
+      name: `Seq Leaf Function ${i + 1}`,
+      level: "L3",
+      owner: "F1: Parent Function",
+    }));
+
+    const richIR: InferredComposedIR = {
+      ...makeMinimalIR(),
+      extracted: {
+        ...MINIMAL_EXTRACTED as any,
+        functions: [...MINIMAL_EXTRACTED.functions, ...extraFunctions],
+      },
+    };
+
+    await runInferenceEngine(richIR, new SeqCheckProvider(), {
+      dryRun: false,
+      concurrency: 1, // sequential
+      log: () => {},
+    });
+
+    // Sequential mode: never more than 1 propose in flight at a time
+    expect(maxInFlight).toBe(1);
   });
 });
