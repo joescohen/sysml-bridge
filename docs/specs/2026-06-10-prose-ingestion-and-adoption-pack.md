@@ -27,6 +27,7 @@ This milestone adds the **highest-criticality items** from the 2026-06-10 strate
 | F5 | RTM-to-Excel export (CDRL-style deliverable artifact) | MEDIUM-TOP |
 | F6 | Requirement-quality linting (INCOSE-style, the adoption wedge) | MEDIUM-TOP |
 | F7 | DEMO.md — 10-minute reproducible walkthrough + gate-guarantees one-pager | MEDIUM-TOP |
+| F8 | Inference/extrapolation layer — see `2026-06-11-inference-extrapolation-layer.md` (follow-on spec) | HIGH (next) |
 
 **Explicit non-goals for this milestone** (recorded so planners do not scope-creep):
 re-baseline diff as a full feature (only its *primitive* lands via F1 suspect flags);
