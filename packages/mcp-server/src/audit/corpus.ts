@@ -16,7 +16,7 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { ExtractedSchema, type Extracted } from "@sysml-bridge/ir";
-import type { ProseComposedIR } from "@sysml-bridge/ir";
+import type { ProseComposedIR, InferredComposedIR } from "@sysml-bridge/ir";
 
 export const ALLOWLIST = new Set([
   "model-asserted",
@@ -101,6 +101,28 @@ export async function loadCorpusCached(extractedPath: string): Promise<Extracted
  */
 export function clearCorpusCache(): void {
   _cache.clear();
+}
+
+/**
+ * Build the GATE-03 provenance resolution set from an InferredComposedIR.
+ *
+ * Extends buildResolutionSetFromComposed with approved inferred ids
+ * (approvedInferredIds from the three-layer composed IR). Only 'approved'-status
+ * inferred ids are added — suspect and superseded ids must NOT resolve.
+ *
+ * Precedent: n2Interfaces extension (commit 32701a0), prose-ids extension.
+ * Same narrow pattern: add ids without widening the fabrication gate.
+ *
+ * @param composed - Output of the three-layer composeIR() from @sysml-bridge/ir
+ */
+export function buildResolutionSetFromInferred(composed: InferredComposedIR): Set<string> {
+  // Start from the prose-layer resolution set (which includes corpus + approved prose ids)
+  const s = buildResolutionSetFromComposed(composed);
+  // Add approved inferred ids (Gate-1 inferred-id extension)
+  for (const id of composed.approvedInferredIds) {
+    s.add(id);
+  }
+  return s;
 }
 
 /**

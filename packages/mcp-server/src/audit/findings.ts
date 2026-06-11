@@ -16,6 +16,11 @@
  *   GATE03-corpus-unavailable           warning — extracted.json could not be loaded; provenance checks skipped
  *   PROSE-suspect-source                warning — prose entry cites a doc whose hash no longer matches the
  *                                                 ingest manifest; entry still composes but should be re-reviewed
+ *   INFER-suspect-premise               warning — inferred entry whose ANY premise id resolves to a suspect/
+ *                                                 superseded entry, or is missing from the composed IR;
+ *                                                 entry still composes but should be re-reviewed
+ *   INFER-unpremised                    error   — inferred-layer entry with no resolvable premises
+ *                                                 (defense-in-depth; the pipeline should drop these pre-approval)
  */
 
 // No runtime imports — pure type + const file, same as sysml-elements.ts
@@ -57,6 +62,12 @@ export interface AuditResult {
     drops: FidelityRow[];
     fabrications: FidelityRow[];
     nearMatches: NearMatch[];
+    /**
+     * F8 fourth bucket: count of model elements whose provenanceSourceId resolves
+     * to an inferred-layer id (approvedInferredIds). Separate from drops/fabrications/
+     * nearMatches — NEVER netted against them.
+     */
+    inferred: number;
   };
   matrix: MatrixRow[];
 }

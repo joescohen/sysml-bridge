@@ -1,8 +1,16 @@
 export { ExtractedSchema, SCHEMA_VERSION } from "./schema.js";
 export type { Extracted } from "./schema.js";
 export { stableId } from "./stable-id.js";
-export { ProseApprovedEntrySchema, composeIR } from "./prose-approved.js";
+export { ProseApprovedEntrySchema, composeIR as composeProseTwoLayer } from "./prose-approved.js";
 export type { ProseApprovedEntry, ProseComposedIR } from "./prose-approved.js";
+export {
+  InferredApprovedEntrySchema,
+  composeIR,
+} from "./inferred-approved.js";
+export type {
+  InferredApprovedEntry,
+  InferredComposedIR,
+} from "./inferred-approved.js";
 export {
   appendApproval,
   recordRejection,
