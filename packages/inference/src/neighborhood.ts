@@ -15,7 +15,7 @@
  */
 
 import type { InferredComposedIR } from "@sysml-bridge/ir";
-import type { ContextBundle } from "./types.js";
+import type { ContextBundle, OfferedFact } from "./types.js";
 
 function serializeElement(el: Record<string, unknown>): string {
   const parts: string[] = [];
@@ -110,9 +110,157 @@ export function serializeNeighborhood(id: string, ir: InferredComposedIR): strin
   return result.slice(0, 2000);
 }
 
+// ── Offered facts (the premise id contract) ──────────────────────────────────
+
+/** Cap on offered facts per candidate pair — keeps the prompt bounded. */
+const MAX_OFFERED_FACTS = 25;
+
+/**
+ * Collect the facts offered for premise citation for a candidate pair:
+ * the source element, the target element, and their 1-hop IR neighbors —
+ * each with its composed-IR id, a display name, and a short detail string.
+ *
+ * The propose prompt renders each fact as `[id: <id>] <kind> "<name>" — <detail>`;
+ * the deterministic premise repair matches ONLY within this list (name + aliases).
+ */
+export function collectOfferedFacts(
+  sourceId: string,
+  targetId: string,
+  ir: InferredComposedIR
+): OfferedFact[] {
+  const corpus = ir.extracted;
+  const facts: OfferedFact[] = [];
+  const seen = new Set<string>();
+
+  const add = (fact: OfferedFact) => {
+    if (seen.has(fact.id) || facts.length >= MAX_OFFERED_FACTS) return;
+    seen.add(fact.id);
+    facts.push(fact);
+  };
+
+  const addElementAndNeighbors = (id: string) => {
+    const fn = (corpus.functions ?? []).find((f) => f.id === id);
+    const comp = (corpus.components ?? []).find((c) => c.id === id);
+    const n2 = (corpus.n2Interfaces ?? []).find((n) => n.id === id);
+    const prose = ir.proseEntries.find((e) => e.id === id);
+
+    if (fn) {
+      add({
+        id: fn.id,
+        kind: "function",
+        name: fn.name,
+        detail: `level ${fn.level}, owner ${fn.owner}`,
+        aliases: [fn.naturalKey, `${fn.naturalKey}: ${fn.name}`],
+      });
+      // Requirements this function satisfies (satisfy chain)
+      for (const sat of corpus.satisfies ?? []) {
+        if (sat.functionId !== fn.id) continue;
+        const req = (corpus.requirements ?? []).find((r) => r.id === sat.reqId);
+        if (req) {
+          add({
+            id: req.id,
+            kind: "requirement",
+            name: req.name,
+            detail: req.statement.slice(0, 120),
+            aliases: [req.naturalKey],
+          });
+        }
+      }
+      // Sibling leaf functions (same owner)
+      for (const sib of (corpus.functions ?? []).filter(
+        (f) => f.owner === fn.owner && f.id !== fn.id
+      ).slice(0, 4)) {
+        add({
+          id: sib.id,
+          kind: "function",
+          name: sib.name,
+          detail: `sibling of "${fn.name}" (owner ${fn.owner})`,
+          aliases: [sib.naturalKey, `${sib.naturalKey}: ${sib.name}`],
+        });
+      }
+      // Functional-N2 flows touching the function's owner context
+      for (const t of (corpus.n2Interfaces ?? []).filter(
+        (n) => n.sourceLabel === fn.owner || n.targetLabel === fn.owner
+      ).slice(0, 4)) {
+        add({
+          id: t.id,
+          kind: "n2-flow",
+          name: t.flow,
+          detail: `${t.sourceLabel} → ${t.targetLabel} [${t.scope}]`,
+        });
+      }
+    } else if (comp) {
+      add({
+        id: comp.id,
+        kind: "component",
+        name: comp.name,
+        detail: `naturalKey ${comp.naturalKey}`,
+        aliases: [comp.naturalKey],
+      });
+      // Subsystems containing this component
+      for (const sub of (corpus.subsystems ?? []).filter((s) =>
+        s.componentIds.includes(comp.id)
+      )) {
+        add({
+          id: sub.id,
+          kind: "subsystem",
+          name: sub.name,
+          detail: `contains "${comp.name}"`,
+          aliases: [sub.naturalKey],
+        });
+      }
+      // Component-scope N2 flows touching this component
+      for (const t of (corpus.n2Interfaces ?? []).filter(
+        (n) => n.sourceId === comp.id || n.targetId === comp.id
+      ).slice(0, 6)) {
+        add({
+          id: t.id,
+          kind: "n2-flow",
+          name: t.flow,
+          detail: `${t.sourceLabel} → ${t.targetLabel} [${t.scope}]`,
+        });
+      }
+    } else if (n2) {
+      add({
+        id: n2.id,
+        kind: "n2-flow",
+        name: n2.flow,
+        detail: `${n2.sourceLabel} → ${n2.targetLabel} [${n2.scope}]`,
+      });
+      // Endpoint components
+      for (const endpointId of [n2.sourceId, n2.targetId]) {
+        const endpoint = (corpus.components ?? []).find((c) => c.id === endpointId);
+        if (endpoint) {
+          add({
+            id: endpoint.id,
+            kind: "component",
+            name: endpoint.name,
+            detail: `endpoint of flow "${n2.flow}"`,
+            aliases: [endpoint.naturalKey],
+          });
+        }
+      }
+    } else if (prose) {
+      const name = typeof prose.fields["name"] === "string" ? (prose.fields["name"] as string) : prose.id;
+      add({
+        id: prose.id,
+        kind: prose.kind,
+        name,
+        detail: prose.citation.quote.slice(0, 120),
+      });
+    }
+  };
+
+  addElementAndNeighbors(sourceId);
+  addElementAndNeighbors(targetId);
+
+  return facts;
+}
+
 /**
  * Build a ContextBundle for a candidate pair.
- * Includes 1-hop neighborhoods for source and target, plus relevant corpus quotes.
+ * Includes 1-hop neighborhoods for source and target, the offered fact list
+ * (the premise id contract), plus relevant corpus quotes.
  */
 export function buildContextBundle(
   sourceId: string,
@@ -135,5 +283,6 @@ export function buildContextBundle(
     sourceNeighborhood,
     targetNeighborhood,
     corpusQuotes: quotes.slice(0, 10),
+    offeredFacts: collectOfferedFacts(sourceId, targetId, ir),
   };
 }

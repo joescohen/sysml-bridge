@@ -35,6 +35,7 @@ import { buildElementMap, applyTypeGate } from "./type-gate.js";
 import { generateCandidates, buildSkipSet, inferenceStableId } from "./candidate-generator.js";
 import { applyRelevanceFilter, resolveFamilyCap } from "./relevance-filter.js";
 import { buildContextBundle } from "./neighborhood.js";
+import { repairPremises } from "./premise-repair.js";
 import { runDebate } from "./debate.js";
 
 // ── Bounded concurrency helper ────────────────────────────────────────────────
@@ -271,6 +272,9 @@ export async function runInferenceEngine(
       rejectedCapped: cappedByFamily[family],
       rejectedType: rejectedByFamily[family],
       proposed: 0,
+      proposalDeclined: 0,
+      proposalParseError: 0,
+      premiseRepaired: 0,
       droppedUnpremised: 0,
       autoRejected: 0,
       debate: 0,
@@ -309,6 +313,9 @@ export async function runInferenceEngine(
       rejectedCapped: cappedByFamily[family],
       rejectedType: rejectedByFamily[family],
       proposed: 0,
+      proposalDeclined: 0,
+      proposalParseError: 0,
+      premiseRepaired: 0,
       droppedUnpremised: 0,
       autoRejected: 0,
       debate: 0,
@@ -334,6 +341,9 @@ export async function runInferenceEngine(
     statDelta: {
       family: RelationFamily;
       proposed: number;
+      proposalDeclined: number;
+      proposalParseError: number;
+      premiseRepaired: number;
       droppedUnpremised: number;
       autoRejected: number;
       debate: number;
@@ -346,6 +356,9 @@ export async function runInferenceEngine(
     const delta = {
       family: candidate.relationFamily,
       proposed: 0,
+      proposalDeclined: 0,
+      proposalParseError: 0,
+      premiseRepaired: 0,
       droppedUnpremised: 0,
       autoRejected: 0,
       debate: 0,
@@ -355,26 +368,45 @@ export async function runInferenceEngine(
     const context = buildContextBundle(candidate.sourceId, candidate.targetId, ir);
 
     // ── Propose ────────────────────────────────────────────────────────────
-    let proposal: import("./types.js").ProposalOutput | null = null;
+    let proposeResult: import("./types.js").ProposeResult;
     try {
-      proposal = await provider.propose(
+      proposeResult = await provider.propose(
         candidate.relationFamily,
         candidate.sourceId,
         candidate.targetId,
         context
       );
     } catch (err: unknown) {
-      log(`[inference] propose error for ${candidate.id}: ${err instanceof Error ? err.message : String(err)} — treating as uncertain`);
-      // Failure isolation: skip this candidate (no record emitted for error)
+      // Failure isolation: transport/SDK error — counted as parse_error so
+      // declined-vs-failure is always distinguishable in the stats.
+      log(`[inference] propose error for ${candidate.id}: ${err instanceof Error ? err.message : String(err)} — counted proposal_parse_error`);
+      delta.proposalParseError++;
       return { record: null, statDelta: delta, droppedUnpremised: 0 };
     }
 
-    if (proposal === null) {
-      // Provider declined to propose — skip silently (no cost)
+    if (proposeResult.kind === "declined") {
+      // Provider explicitly declined to propose — counted, no record
+      delta.proposalDeclined++;
       return { record: null, statDelta: delta, droppedUnpremised: 0 };
     }
 
+    if (proposeResult.kind === "parse_error") {
+      // Response failed JSON/schema parsing — counted + logged with detail
+      log(`[inference] proposal_parse_error: ${candidate.id} (${proposeResult.detail})`);
+      delta.proposalParseError++;
+      return { record: null, statDelta: delta, droppedUnpremised: 0 };
+    }
+
+    let proposal = proposeResult.proposal;
     delta.proposed++;
+
+    // ── Deterministic name→id premise repair (bounded to the offered bundle) ──
+    const repair = repairPremises(proposal.premises, context.offeredFacts);
+    if (repair.repairedCount > 0) {
+      log(`[inference] premise_repaired: ${candidate.id} (${repair.repairedCount} name-citation${repair.repairedCount === 1 ? "" : "s"} → offered-fact id)`);
+      delta.premiseRepaired += repair.repairedCount;
+      proposal = { ...proposal, premises: repair.premises };
+    }
 
     // ── Premise validation (A2: emittedUnpremised MUST stay 0) ────────────
     const premiseCheck = validatePremises(proposal.premises, ir);
@@ -494,10 +526,20 @@ export async function runInferenceEngine(
     droppedUnpremised += outcome.droppedUnpremised;
     const s = statMap.get(outcome.statDelta.family)!;
     s.proposed += outcome.statDelta.proposed;
+    s.proposalDeclined += outcome.statDelta.proposalDeclined;
+    s.proposalParseError += outcome.statDelta.proposalParseError;
+    s.premiseRepaired += outcome.statDelta.premiseRepaired;
     s.droppedUnpremised += outcome.statDelta.droppedUnpremised;
     s.autoRejected += outcome.statDelta.autoRejected;
     s.debate += outcome.statDelta.debate;
     s.queued += outcome.statDelta.queued;
+  }
+
+  // Per-family null-proposal split (declined vs parse error) + repair summary
+  for (const s of statMap.values()) {
+    if (s.proposalDeclined + s.proposalParseError + s.premiseRepaired > 0) {
+      log(`[inference] ${s.family}: proposal_declined=${s.proposalDeclined}, proposal_parse_error=${s.proposalParseError}, premise_repaired=${s.premiseRepaired}`);
+    }
   }
 
   // ── Invariant check (defensive): emittedUnpremised MUST be 0 ─────────────

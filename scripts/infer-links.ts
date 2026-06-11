@@ -43,7 +43,7 @@ import {
 } from "../packages/inference/src/engine.js";
 import { AnthropicInferenceProvider } from "../packages/inference/src/inference-provider.js";
 import type { InferenceProvider } from "../packages/inference/src/inference-provider.js";
-import type { ProposalOutput } from "../packages/inference/src/types.js";
+import type { ProposeResult } from "../packages/inference/src/types.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -82,8 +82,8 @@ function loadDotEnv(): void {
 // ── No-op provider for dry-run (no API key needed) ───────────────────────────
 
 class NoOpInferenceProvider implements InferenceProvider {
-  async propose(): Promise<ProposalOutput | null> {
-    return null; // never proposes — dry run only
+  async propose(): Promise<ProposeResult> {
+    return { kind: "declined" }; // never proposes — dry run only
   }
   async advocate(): Promise<{ score: number; summary: string }> {
     return { score: 0.5, summary: "dry-run" };
@@ -216,11 +216,11 @@ async function main(): Promise<void> {
   }
 
   // Per-family stats table
-  process.stderr.write(`\nFamily          │ Generated │ RejUnbnd │ RejCap │ RejType │ Proposed │ DrpUnprem │ AutoRej │ Debate │ Queued\n`);
-  process.stderr.write(`────────────────┼───────────┼──────────┼────────┼─────────┼──────────┼───────────┼─────────┼────────┼───────\n`);
+  process.stderr.write(`\nFamily          │ Generated │ RejUnbnd │ RejCap │ RejType │ Proposed │ Declined │ ParseErr │ Repaired │ DrpUnprem │ AutoRej │ Debate │ Queued\n`);
+  process.stderr.write(`────────────────┼───────────┼──────────┼────────┼─────────┼──────────┼──────────┼──────────┼──────────┼───────────┼─────────┼────────┼───────\n`);
   for (const st of result.stats) {
     const f = st.family.padEnd(15);
-    process.stderr.write(`${f} │ ${String(st.generated).padStart(9)} │ ${String(st.rejectedUnbounded).padStart(8)} │ ${String(st.rejectedCapped).padStart(6)} │ ${String(st.rejectedType).padStart(7)} │ ${String(st.proposed).padStart(8)} │ ${String(st.droppedUnpremised).padStart(9)} │ ${String(st.autoRejected).padStart(7)} │ ${String(st.debate).padStart(6)} │ ${String(st.queued).padStart(6)}\n`);
+    process.stderr.write(`${f} │ ${String(st.generated).padStart(9)} │ ${String(st.rejectedUnbounded).padStart(8)} │ ${String(st.rejectedCapped).padStart(6)} │ ${String(st.rejectedType).padStart(7)} │ ${String(st.proposed).padStart(8)} │ ${String(st.proposalDeclined).padStart(8)} │ ${String(st.proposalParseError).padStart(8)} │ ${String(st.premiseRepaired).padStart(8)} │ ${String(st.droppedUnpremised).padStart(9)} │ ${String(st.autoRejected).padStart(7)} │ ${String(st.debate).padStart(6)} │ ${String(st.queued).padStart(6)}\n`);
   }
   process.stderr.write(`\n`);
   process.stderr.write(`Total records:     ${result.records.length}\n`);

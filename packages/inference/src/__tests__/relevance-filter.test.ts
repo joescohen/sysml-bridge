@@ -22,7 +22,7 @@ import { applyRelevanceFilter, scoreAllocationSignals } from "../relevance-filte
 import { generateCandidates } from "../candidate-generator.js";
 import { runInferenceEngine } from "../engine.js";
 import type { InferenceProvider } from "../inference-provider.js";
-import type { ProposalOutput, ContextBundle } from "../types.js";
+import type { ProposeResult } from "../types.js";
 
 // ── Fixture: 2 leaf functions × 3 components, deliberately partial signals ────
 //
@@ -137,8 +137,8 @@ function COMP_NONE_NEVER_MATCHES_PLACEHOLDER(): string {
 // ── Mock provider (never proposes — these tests are pre-LLM) ─────────────────
 
 class NeverProvider implements InferenceProvider {
-  async propose(): Promise<ProposalOutput | null> {
-    return null;
+  async propose(): Promise<ProposeResult> {
+    return { kind: "declined" };
   }
   async advocate(): Promise<{ score: number; summary: string }> {
     return { score: 0.5, summary: "n/a" };

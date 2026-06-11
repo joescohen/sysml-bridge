@@ -85,6 +85,36 @@ export const ProposalOutputSchema = z.object({
 
 export type ProposalOutput = z.infer<typeof ProposalOutputSchema>;
 
+// ── Propose result (distinguishes declined vs parse failure) ─────────────────
+
+/**
+ * Discriminated result of a propose() call:
+ *   - "proposal"    — the model proposed a link (zod-validated)
+ *   - "declined"    — the model explicitly returned no proposal ({"proposal": null})
+ *   - "parse_error" — the response could not be parsed/validated (JSON or schema)
+ */
+export type ProposeResult =
+  | { kind: "proposal"; proposal: ProposalOutput }
+  | { kind: "declined" }
+  | { kind: "parse_error"; detail: string };
+
+// ── Offered fact (the premise id contract) ────────────────────────────────────
+
+/**
+ * One fact offered to the LLM in the propose context. Rendered in the prompt as:
+ *   [id: <id>] <kind> "<name>" — <detail>
+ * Premises MUST cite these ids; the deterministic name→id repair only matches
+ * against facts that were offered (name + aliases), never the whole IR.
+ */
+export interface OfferedFact {
+  id: string;
+  kind: string;
+  name: string;
+  detail: string;
+  /** Additional matchable labels for repair (e.g. naturalKey, "key: name"). */
+  aliases?: string[];
+}
+
 // ── Confidence bands (A3) ───────────────────────────────────────────────────
 
 export const CONF_FLOOR = 0.40;   // below → auto_rejected
@@ -160,6 +190,12 @@ export interface ContextBundle {
   targetNeighborhood: string;
   /** Relevant corpus/prose quotes for source + target */
   corpusQuotes: string[];
+  /**
+   * The facts offered for premise citation — source, target, and their 1-hop
+   * neighbors, each with its composed-IR id. The propose prompt renders these
+   * as `[id: …]` lines; the premise repair only matches within this list.
+   */
+  offeredFacts: OfferedFact[];
 }
 
 // ── Union of all stage-annotated candidate records ──────────────────────────
@@ -185,6 +221,12 @@ export interface RunStats {
   rejectedCapped: number;
   rejectedType: number;
   proposed: number;
+  /** Provider explicitly returned no proposal ({"proposal": null}). */
+  proposalDeclined: number;
+  /** Provider response failed JSON/schema parsing (or threw). */
+  proposalParseError: number;
+  /** Premises mechanically repaired from offered-fact name → composed-IR id. */
+  premiseRepaired: number;
   droppedUnpremised: number;
   autoRejected: number;
   debate: number;

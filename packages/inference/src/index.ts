@@ -16,7 +16,16 @@ export { runInferenceEngine, hashComposedIR, estimateCostUsd, validatePremises }
 export type { EngineOptions, EngineResult } from "./engine.js";
 
 export type { InferenceProvider } from "./inference-provider.js";
-export { AnthropicInferenceProvider } from "./inference-provider.js";
+export {
+  AnthropicInferenceProvider,
+  buildProposeUserMessage,
+  renderOfferedFacts,
+  parseProposeResponse,
+  PREMISE_ID_INSTRUCTION,
+} from "./inference-provider.js";
+
+export { repairPremises, normalizeLabel } from "./premise-repair.js";
+export type { RepairResult } from "./premise-repair.js";
 
 export {
   buildElementMap,
@@ -48,7 +57,7 @@ export type {
 
 export { computeDebateVerdict, runDebate, DEBATE_ADVOCATE_CONFIRM, DEBATE_CHALLENGER_REJECT, DEBATE_CHALLENGER_MAX_CONFIRM } from "./debate.js";
 
-export { buildContextBundle, serializeNeighborhood } from "./neighborhood.js";
+export { buildContextBundle, serializeNeighborhood, collectOfferedFacts } from "./neighborhood.js";
 
 export type {
   RelationFamily,
@@ -58,6 +67,8 @@ export type {
   CappedCandidate,
   DroppedUnpremisedCandidate,
   ProposalOutput,
+  ProposeResult,
+  OfferedFact,
   AutoRejectedRecord,
   QueuedRecord,
   DebateRecord,

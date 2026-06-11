@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest";
 import type { InferredComposedIR } from "@sysml-bridge/ir";
 import type { InferenceProvider } from "../inference-provider.js";
-import type { ProposalOutput, ContextBundle } from "../types.js";
+import type { ProposalOutput, ProposeResult, ContextBundle } from "../types.js";
 import { checkTypeGate, buildElementMap } from "../type-gate.js";
 import { computeDebateVerdict } from "../debate.js";
 import { classifyBand } from "../types.js";
@@ -157,14 +157,17 @@ class MockProvider implements InferenceProvider {
     sourceId: string,
     targetId: string,
     _context: ContextBundle
-  ): Promise<ProposalOutput | null> {
+  ): Promise<ProposeResult> {
     return {
-      sourceId,
-      targetId,
-      relationFamily: family,
-      premises: this.premiseIds,
-      rationale: "Mock rationale — audit only",
-      confidence: this.confidence,
+      kind: "proposal",
+      proposal: {
+        sourceId,
+        targetId,
+        relationFamily: family,
+        premises: this.premiseIds,
+        rationale: "Mock rationale — audit only",
+        confidence: this.confidence,
+      },
     };
   }
 
@@ -669,19 +672,22 @@ describe("A5 — bounded concurrency: correct processing, determinism, INFER_CON
         sourceId: string,
         targetId: string,
         _ctx: ContextBundle
-      ): Promise<ProposalOutput | null> {
+      ): Promise<ProposeResult> {
         // Deliberate variable delay to exercise interleaving
         const delay = Math.floor(Math.random() * 10);
         await new Promise<void>((resolve) => setTimeout(resolve, delay));
         const key = `${family}::${sourceId}::${targetId}`;
         proposeCalls.add(key);
         return {
-          sourceId,
-          targetId,
-          relationFamily: family,
-          premises: [CORPUS_REQ_ID],
-          rationale: "mock",
-          confidence: 0.9,
+          kind: "proposal",
+          proposal: {
+            sourceId,
+            targetId,
+            relationFamily: family,
+            premises: [CORPUS_REQ_ID],
+            rationale: "mock",
+            confidence: 0.9,
+          },
         };
       }
       async advocate(_f: Parameters<InferenceProvider["advocate"]>[0], _p: ProposalOutput, _c: ContextBundle) {
@@ -723,16 +729,19 @@ describe("A5 — bounded concurrency: correct processing, determinism, INFER_CON
         sourceId: string,
         targetId: string,
         _ctx: ContextBundle
-      ): Promise<ProposalOutput | null> {
+      ): Promise<ProposeResult> {
         // Variable delay to stress ordering
         await new Promise<void>((resolve) => setTimeout(resolve, Math.floor(Math.random() * 15)));
         return {
-          sourceId,
-          targetId,
-          relationFamily: family,
-          premises: [CORPUS_REQ_ID],
-          rationale: "mock",
-          confidence: 0.9,
+          kind: "proposal",
+          proposal: {
+            sourceId,
+            targetId,
+            relationFamily: family,
+            premises: [CORPUS_REQ_ID],
+            rationale: "mock",
+            confidence: 0.9,
+          },
         };
       }
       async advocate(_f: Parameters<InferenceProvider["advocate"]>[0], _p: ProposalOutput, _c: ContextBundle) {
@@ -761,17 +770,20 @@ describe("A5 — bounded concurrency: correct processing, determinism, INFER_CON
         sourceId: string,
         targetId: string,
         _ctx: ContextBundle
-      ): Promise<ProposalOutput | null> {
+      ): Promise<ProposeResult> {
         const idx = this.callIndex++;
         // Every other candidate gets a bad premise
         const premises = idx % 2 === 0 ? [CORPUS_REQ_ID] : [BAD_PREMISE];
         return {
-          sourceId,
-          targetId,
-          relationFamily: family,
-          premises,
-          rationale: "mock",
-          confidence: 0.9,
+          kind: "proposal",
+          proposal: {
+            sourceId,
+            targetId,
+            relationFamily: family,
+            premises,
+            rationale: "mock",
+            confidence: 0.9,
+          },
         };
       }
       async advocate(_f: Parameters<InferenceProvider["advocate"]>[0], _p: ProposalOutput, _c: ContextBundle) {
@@ -814,19 +826,22 @@ describe("A5 — bounded concurrency: correct processing, determinism, INFER_CON
         sourceId: string,
         targetId: string,
         _ctx: ContextBundle
-      ): Promise<ProposalOutput | null> {
+      ): Promise<ProposeResult> {
         inFlight++;
         maxInFlight = Math.max(maxInFlight, inFlight);
         // Hold for a bit so multiple tasks can pile up
         await new Promise<void>((resolve) => setTimeout(resolve, 20));
         inFlight--;
         return {
-          sourceId,
-          targetId,
-          relationFamily: family,
-          premises: [CORPUS_REQ_ID],
-          rationale: "mock",
-          confidence: 0.9,
+          kind: "proposal",
+          proposal: {
+            sourceId,
+            targetId,
+            relationFamily: family,
+            premises: [CORPUS_REQ_ID],
+            rationale: "mock",
+            confidence: 0.9,
+          },
         };
       }
       async advocate(_f: Parameters<InferenceProvider["advocate"]>[0], _p: ProposalOutput, _c: ContextBundle) {
@@ -879,18 +894,21 @@ describe("A5 — bounded concurrency: correct processing, determinism, INFER_CON
         sourceId: string,
         targetId: string,
         _ctx: ContextBundle
-      ): Promise<ProposalOutput | null> {
+      ): Promise<ProposeResult> {
         inFlight++;
         maxInFlight = Math.max(maxInFlight, inFlight);
         await new Promise<void>((resolve) => setTimeout(resolve, 10));
         inFlight--;
         return {
-          sourceId,
-          targetId,
-          relationFamily: family,
-          premises: [CORPUS_REQ_ID],
-          rationale: "mock",
-          confidence: 0.9,
+          kind: "proposal",
+          proposal: {
+            sourceId,
+            targetId,
+            relationFamily: family,
+            premises: [CORPUS_REQ_ID],
+            rationale: "mock",
+            confidence: 0.9,
+          },
         };
       }
       async advocate(_f: Parameters<InferenceProvider["advocate"]>[0], _p: ProposalOutput, _c: ContextBundle) {
