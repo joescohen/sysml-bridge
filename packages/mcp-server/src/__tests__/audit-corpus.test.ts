@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, afterEach } from "vitest";
-import { promises as fs } from "node:fs";
+import { promises as fs, existsSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
@@ -251,12 +251,16 @@ describe("buildResolutionSet — n2Interfaces extension", () => {
   });
 });
 
-describe("real extracted.json parse", () => {
-  const EXTRACTED_PATH = path.resolve(
-    __dirname,
-    "../../../../examples/angars/model/extracted.json"
-  );
+// The real ANGARS corpus (examples/angars/model/extracted.json) is gitignored —
+// proprietary, local-only. This block runs where it is present (local dev) and is
+// skipped in CI, where the file is absent by design.
+const EXTRACTED_PATH = path.resolve(
+  __dirname,
+  "../../../../examples/angars/model/extracted.json"
+);
+const describeRealCorpus = existsSync(EXTRACTED_PATH) ? describe : describe.skip;
 
+describeRealCorpus("real extracted.json parse", () => {
   it("parses the real extracted.json clean (GATE-03 corpus is loadable)", async () => {
     const result = await loadCorpus(EXTRACTED_PATH);
     expect(result.schema_version).toBe("1.0.0");

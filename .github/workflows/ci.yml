@@ -28,6 +28,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Set up Python (SysML grammar validator)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Set up SysML validator venv
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r tools/sysml-validator/requirements.txt
+
       - name: Build
         run: pnpm build
 
