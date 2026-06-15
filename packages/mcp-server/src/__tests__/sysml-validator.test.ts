@@ -98,16 +98,18 @@ describe("SysML v2 grammar validator gate (G5)", () => {
     }
   });
 
-  it("POSITIVE control: regenerated cc-subsystem.sysml validates clean (exit 0, OK)", () => {
-    expect(
-      fs.existsSync(MODEL_SYSML),
-      `model not found at ${MODEL_SYSML} — run \`pnpm tsx scripts/generate-cc-model.ts\` first`,
-    ).toBe(true);
-
-    const { exitCode, stdout } = runValidator(MODEL_SYSML);
-    expect(exitCode, `expected clean exit 0, got ${exitCode}. stdout:\n${stdout}`).toBe(0);
-    expect(stdout).toContain("OK");
-  });
+  // cc-subsystem.sysml is a generated, gitignored artifact (its corpus input is
+  // local-only), so it is absent in CI and cannot be regenerated there. This
+  // real-model control runs only where the generated model exists (local dev);
+  // the validator's positive path stays covered in CI by the minimal control below.
+  it.skipIf(!fs.existsSync(MODEL_SYSML))(
+    "POSITIVE control: regenerated cc-subsystem.sysml validates clean (exit 0, OK)",
+    () => {
+      const { exitCode, stdout } = runValidator(MODEL_SYSML);
+      expect(exitCode, `expected clean exit 0, got ${exitCode}. stdout:\n${stdout}`).toBe(0);
+      expect(stdout).toContain("OK");
+    },
+  );
 
   it("POSITIVE control (minimal): a tiny valid requirement snippet validates clean", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sysml-pos-"));
