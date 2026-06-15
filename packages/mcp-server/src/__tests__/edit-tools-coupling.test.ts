@@ -77,8 +77,9 @@ async function buildTestPair(store: FileStore): Promise<{ client: Client; cleanu
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function parseText(result: { content: unknown }): unknown {
-  const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+function parseText(result: unknown): unknown {
+  const content = (result as { content: unknown }).content;
+  const text = (content as Array<{ type: string; text: string }>)[0].text;
   return JSON.parse(text);
 }
 
