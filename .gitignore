@@ -28,10 +28,6 @@ docs/REVIEW.md
 # Editor/tool-specific local config
 .claude/
 .codex/
-dashboard/.claude/
-
-# Redundant lockfile (project uses pnpm)
-dashboard/package-lock.json
 
 # Python virtualenvs (local-only; recreate via tools/sysml-validator/requirements.txt)
 .venv/
@@ -55,3 +51,8 @@ tools/sysml-validator/generated/__pycache__/
 
 # MCP file-store runtime data (per-project; not source)
 .sysml-bridge/
+
+# inference/prose decision + candidate files (corpus-derived; rationale is audit-only)
+examples/angars/model/inferred-*.json
+examples/angars/model/prose-*.json
+examples/angars/model/inference-candidates.json

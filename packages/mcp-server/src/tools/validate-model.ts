@@ -1,15 +1,58 @@
 import { z } from "zod";
+import * as path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ModelStore } from "../store.js";
+import { audit } from "../audit/index.js";
+import { loadCorpusCached } from "../audit/corpus.js";
+import { writeReports } from "../audit/report.js";
+import { FORWARD_TYPES, VERIFY_TYPES, BACKWARD_TYPES } from "../audit/relational.js";
+
+// ---------------------------------------------------------------------------
+// CR-01: corpus_path containment guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a caller-supplied corpus path and assert it stays inside the project
+ * root and ends with `.json`.
+ *
+ * Throws an Error (caught by the tool handler → isError response) when either
+ * condition fails. The SYSML_BRIDGE_CORPUS_PATH env var is set at server
+ * startup (trusted operator) and is NOT subject to this check.
+ */
+function assertCorpusPathAllowed(rawPath: string): string {
+  const resolved = path.resolve(rawPath);
+  const root = process.cwd();
+  const rootPrefix = root.endsWith(path.sep) ? root : root + path.sep;
+  if (resolved !== root && !resolved.startsWith(rootPrefix)) {
+    throw new Error(
+      `corpus_path '${rawPath}' resolves outside the project root — rejected for security.`
+    );
+  }
+  if (!resolved.endsWith(".json")) {
+    throw new Error(`corpus_path '${rawPath}' must refer to a .json file.`);
+  }
+  return resolved;
+}
 
 export function registerValidateModel(server: McpServer, smaps: ModelStore) {
   server.tool(
     "validate_model",
     "Run completeness and consistency checks — unsatisfied requirements, orphaned elements, missing connections",
     {
-      scope: z.string().optional().describe("Element ID to scope validation to, or omit for full model"),
+      corpus_path: z
+        .string()
+        .optional()
+        .describe(
+          "Path to extracted.json; default $SYSML_BRIDGE_CORPUS_PATH or examples/angars/model/extracted.json"
+        ),
+      write_report: z
+        .boolean()
+        .optional()
+        .describe(
+          "Write coverage-matrix.md and fidelity-report.md to the audits dir; default false"
+        ),
     },
-    async () => {
+    async ({ corpus_path, write_report }) => {
       try {
         const state = await smaps.getProjectState();
         const requirements = await smaps.queryElements("RequirementDefinition");
@@ -36,10 +79,6 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
         const needs = requirements.filter((r) => r.raw.stakeholderNeed === true);
         const systemReqs = requirements.filter((r) => r.raw.stakeholderNeed !== true);
 
-        const FORWARD_TYPES = new Set(["SatisfyRequirementUsage", "AllocationUsage"]);
-        const VERIFY_TYPES = new Set(["VerifyRequirementUsage", "RequirementVerificationMembership"]);
-        const BACKWARD_TYPES = new Set(["DeriveRequirementUsage"]);
-
         // ── System Requirement traceability ──
         const forwardTracedIds = new Set<string>();
         const verifiedIds = new Set<string>();
@@ -57,8 +96,12 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
           if (hasVerify) verifiedIds.add(req.id);
 
           // Backward: outgoing DeriveRequirementUsage (req → need)
-          // The req is the SOURCE of the derive edge pointing to a Need.
-          const hasBackward = rels.some((r) => BACKWARD_TYPES.has(r.type));
+          // CR-02 fix: req must be the SOURCE of the derive edge. A req that is
+          // only the TARGET of a DeriveRequirementUsage (chained derivation from
+          // a peer) has NOT backtraced to a stakeholder Need.
+          const hasBackward = rels.some(
+            (r) => BACKWARD_TYPES.has(r.type) && r.sourceIds.includes(req.id)
+          );
           if (hasBackward) backwardTracedIds.add(req.id);
         }
 
@@ -205,6 +248,29 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
           }
         }
 
+        // ── GATE-01 audit: findings / fidelity / matrix (additive) ──────────
+        // Legacy envelope above stays verbatim; these are appended as new keys.
+        // CR-01: caller-supplied corpus_path is sandboxed to the project root.
+        // SYSML_BRIDGE_CORPUS_PATH is set by the operator at server startup (trusted).
+        const corpusPath = corpus_path
+          ? assertCorpusPathAllowed(corpus_path)
+          : (process.env.SYSML_BRIDGE_CORPUS_PATH ??
+              path.join(process.cwd(), "examples/angars/model/extracted.json"));
+        const corpus = await loadCorpusCached(corpusPath);
+
+        // Gather all elements for the audit (allRels already fetched above).
+        const allElements = await smaps.queryElements();
+        const auditResult = audit(allElements, allRels, corpus);
+
+        // Optional report write (default false — keeps existing tests clean).
+        let reportPaths: { matrixPath: string; fidelityPath: string } | undefined;
+        if (write_report === true) {
+          const auditsDir =
+            process.env.SYSML_BRIDGE_AUDITS_DIR ??
+            path.join(process.cwd(), "examples/angars/audits");
+          reportPaths = await writeReports(auditsDir, auditResult.matrix, auditResult.fidelity);
+        }
+
         return {
           content: [
             {
@@ -228,6 +294,11 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
                     elementsMissingBackpointer,
                     danglingRelationships,
                   },
+                  // ── GATE-01 additive keys ──
+                  findings: auditResult.findings,
+                  fidelity: auditResult.fidelity,
+                  matrix: auditResult.matrix,
+                  ...(reportPaths !== undefined ? { reportPaths } : {}),
                 },
                 null,
                 2

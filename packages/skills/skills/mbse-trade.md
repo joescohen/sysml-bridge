@@ -3,6 +3,8 @@ name: mbse-trade
 description: Weighted trade studies — Pugh matrices, MOE/MOP scoring, decision rationale
 ---
 
+> **Grounding rules:** read `packages/skills/skills/_shared/knowledge-preamble.md` before this skill.
+
 # MBSE Trade
 
 Conduct structured trade studies with traceability to requirements and KPPs.

@@ -29,14 +29,18 @@
     "dev": "pnpm --filter mcp-server dev",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
-    "validate:sysml": "tools/sysml-validator/run.sh"
+    "validate:sysml": "tools/sysml-validator/run.sh",
+    "render:views": "tools/decisym-viewer/render.sh",
+    "extract:angars": "pnpm tsx scripts/extract-angars.ts",
+    "check:skills": "pnpm tsx scripts/check-skill-paths.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "packageManager": "pnpm@9.15.0",
   "devDependencies": {
+    "@sysml-bridge/ir": "workspace:*",
     "tsx": "^4.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz"
   }
 }

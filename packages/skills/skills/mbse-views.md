@@ -3,6 +3,8 @@ name: mbse-views
 description: Generate SysML v2 viewpoints and views — stakeholder-specific model slices
 ---
 
+> **Grounding rules:** read `packages/skills/skills/_shared/knowledge-preamble.md` before this skill.
+
 # MBSE Views
 
 Generate viewpoints and views that present the model from different stakeholder perspectives.

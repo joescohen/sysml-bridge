@@ -1,37 +1,32 @@
 ---
 name: mbse-diagram
-description: Render model structure as SysON diagrams or Mermaid text
+description: Render model structure as Mermaid diagrams from the file-native model store
 ---
+
+> **Grounding rules:** read `packages/skills/skills/_shared/knowledge-preamble.md` before this skill.
 
 # MBSE Diagram
 
-Render model structure as visual diagrams — either as SysON representations (embedded in the
-dashboard iframe) or as Mermaid text (for documentation).
+Render model structure as Mermaid text diagrams sourced from the file-native MCP model store.
+All visual output is Mermaid text generated from `query_elements` and `query_relationships`
+results. (Diagram-creation tools belong to the HTTP-only server and are not available here.)
 
 ## Diagram Types
 
-| Type      | SysON diagram type          | Mermaid format      | What it shows                          |
-|-----------|-----------------------------|---------------------|----------------------------------------|
-| `bdd`     | General View                | classDiagram        | Part definitions, compositions         |
-| `ibd`     | Interconnection View        | flowchart           | Ports, connections, flows              |
-| `state`   | State Transition View       | stateDiagram-v2     | States, transitions, triggers          |
-| `req`     | Requirements Table View     | —                   | Requirement hierarchy and attributes   |
-| `context` | —                           | flowchart           | System boundary, actors, interfaces    |
-| `trace`   | —                           | flowchart           | Requirements → blocks → verification   |
+| Type      | Mermaid format      | What it shows                          |
+|-----------|---------------------|----------------------------------------|
+| `bdd`     | classDiagram        | Part definitions, compositions         |
+| `ibd`     | flowchart           | Ports, connections, flows              |
+| `state`   | stateDiagram-v2     | States, transitions, triggers          |
+| `context` | flowchart           | System boundary, actors, interfaces    |
+| `trace`   | flowchart           | Requirements → blocks → verification   |
 
 ## Workflow
 
 1. **Query model state** — `query_elements` and `query_relationships` to understand what exists.
-2. **Choose output format**:
-   - SysON representation (previewable in dashboard) → `create_diagram`
-   - Mermaid text (documentation, export) → generate inline from query results
-3. **Create SysON diagrams** — `create_diagram(elementId, diagramType, name)`:
-   - `"General View"` — BDD equivalent (PartDefinitions and structure)
-   - `"Interconnection View"` — IBD (ports and connections)
-   - `"State Transition View"` — state machine
-   - `"Requirements Table View"` — requirements table
-4. **Generate Mermaid** — for context diagrams, traceability views, or stakeholder docs,
-   build from `query_elements` + `query_relationships` results.
+2. **Choose diagram type** — pick the Mermaid format from the table above.
+3. **Generate Mermaid** — build from query results inline and return the fenced code block
+   to the user.
 
 ## Building diagrams from relationships
 
@@ -58,5 +53,4 @@ IDs to port names, then to their owning PartDefinitions.
 
 - `query_elements`
 - `query_relationships`
-- `create_diagram`
 - `get_project_state`

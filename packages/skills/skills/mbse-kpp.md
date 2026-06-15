@@ -3,6 +3,8 @@ name: mbse-kpp
 description: Define and track Key Performance Parameters, MOEs, and MOPs
 ---
 
+> **Grounding rules:** read `packages/skills/skills/_shared/knowledge-preamble.md` before this skill.
+
 # MBSE KPP
 
 Define, track, and assess Key Performance Parameters (KPPs), Measures of Effectiveness (MOEs), and Measures of Performance (MOPs).

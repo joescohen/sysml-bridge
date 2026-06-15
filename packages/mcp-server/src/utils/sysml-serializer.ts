@@ -1,4 +1,5 @@
 import type { SysmlElement, SysmlRelationship } from "../types/sysml-elements.js";
+import type { InferredApprovedEntry } from "@sysml-bridge/ir";
 
 // ---------------------------------------------------------------------------
 // SysML v2 type → textual keyword mapping
@@ -131,7 +132,8 @@ function nestedStatement(
   tgt: string,
   name: string | null,
   payloadType?: string | null,
-  typeName?: string | null
+  typeName?: string | null,
+  guard?: string | null
 ): string {
   switch (kind) {
     case "connect":
@@ -141,6 +143,10 @@ function nestedStatement(
     case "bind":
       return `bind ${src} = ${tgt};`;
     case "succession":
+      // Guarded succession: `first X if <guard> then Y;` — validated in activity-control-flow.sysml
+      if (guard && guard.length > 0) {
+        return `first ${src} if ${guard} then ${tgt};`;
+      }
       return `first ${src} then ${tgt};`;
     case "transition":
       return `transition first ${src} then ${tgt};`;
@@ -184,6 +190,11 @@ const TYPE_TO_KEYWORD: Record<string, string> = {
   ConstraintUsage: "constraint",
   ActionDefinition: "action def",
   ActionUsage: "action",
+  // Activity control nodes — validated against activity-control-flow.sysml fixture
+  DecisionNode: "decide",
+  ForkNode: "fork",
+  JoinNode: "join",
+  MergeNode: "merge",
   StateDefinition: "state def",
   StateUsage: "state",
   UseCaseDefinition: "use case def",
@@ -275,12 +286,83 @@ function referencesScalarType(elements: SysmlElement[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// InferenceProvenance metatag emission (F8 / §5)
+//
+// emitInferenceProvenanceTags builds the `metadata def InferenceProvenance { ... }`
+// block (emitted once) and per-element `metadata InferenceProvenance about <name> { ... }`
+// blocks (emitted once per tagged element).
+//
+// RATIONALE IS NEVER EXPORTED (DEBAT-04 discipline). premiseRefs carries ids only,
+// never corpus quotes. The def uses ScalarValues::* types (import already emitted by
+// referencesScalarType path; we add it here when needed for the metatag even if no
+// element references a scalar type).
+// ---------------------------------------------------------------------------
+
+/** Options controlling optional metatag emission */
+export interface SerializeOptions {
+  /**
+   * When true: model-asserted elements (provenanceSourceId === "model-asserted")
+   * also receive an InferenceProvenance tag with provenanceClass = "asserted".
+   * Default: false (no tags for model-asserted elements).
+   */
+  emitAssertedTags?: boolean;
+}
+
+/**
+ * Build the InferenceProvenance metadata def block (§5 validated form).
+ * Emitted once per model.
+ */
+function inferenceProvenanceDefBlock(): string {
+  return [
+    "metadata def InferenceProvenance {",
+    "    attribute provenanceClass : ScalarValues::String;",
+    "    attribute confidenceScore : ScalarValues::Real;",
+    "    attribute premiseRefs : ScalarValues::String;",
+    "    attribute inferenceRunId : ScalarValues::String;",
+    "    attribute approvedBy : ScalarValues::String;",
+    "}",
+  ].join("\n");
+}
+
+/**
+ * Build a per-element `metadata InferenceProvenance about <name> { ... }` block.
+ * Rationale is NEVER included. premiseRefs carries ids only.
+ */
+function inferenceProvenanceAboutBlock(
+  elementName: string,
+  provenanceClass: "inferred" | "asserted",
+  entry: {
+    confidence?: number;
+    premises?: string[];
+    inferenceRunId?: string;
+    approvedBy?: string;
+  }
+): string {
+  const confidence = entry.confidence ?? 0;
+  const premiseRefs = (entry.premises ?? []).join(", ");
+  const runId = entry.inferenceRunId ?? "";
+  const approvedBy = entry.approvedBy ?? "";
+
+  return [
+    `metadata InferenceProvenance about ${quoteName(elementName)} {`,
+    `    provenanceClass = "${provenanceClass}";`,
+    `    confidenceScore = ${confidence};`,
+    `    premiseRefs = "${premiseRefs}";`,
+    `    inferenceRunId = "${runId}";`,
+    `    approvedBy = "${approvedBy}";`,
+    `}`,
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 export function serializeToSysml(
   elements: SysmlElement[],
-  relationships: SysmlRelationship[]
+  relationships: SysmlRelationship[],
+  approvedInferredEntries?: InferredApprovedEntry[],
+  options?: SerializeOptions
 ): string {
   // Build a set of all element IDs for fast lookup
   const elementIds = new Set(elements.map((e) => e.id));
@@ -348,12 +430,17 @@ export function serializeToSysml(
 
   // (a) Relationship-shaped nested rels (Connector, Succession, Transition,
   // Flow...). A "Flow" rel may carry raw.payloadType for a typed item flow.
+  // A "Succession" rel may carry raw.guard for a guarded succession (`first X if <g> then Y;`).
   for (const rel of relationships) {
     const kind = NESTED_REL_KIND[rel.type];
     if (!kind) continue;
     const payloadType =
       kind === "flow" && typeof rel.raw?.payloadType === "string"
         ? (rel.raw.payloadType as string)
+        : null;
+    const guard =
+      kind === "succession" && typeof rel.raw?.guard === "string" && (rel.raw.guard as string).length > 0
+        ? (rel.raw.guard as string)
         : null;
     const stmt = resolveNestedFromEndpoints(
       kind,
@@ -363,7 +450,9 @@ export function serializeToSysml(
       typeof rel.raw?.ownerId === "string" ? (rel.raw.ownerId as string) : undefined,
       elementById,
       elementIds,
-      payloadType
+      payloadType,
+      null,
+      guard
     );
     if (stmt) addNested(nestedByOwner, stmt);
   }
@@ -427,6 +516,30 @@ export function serializeToSysml(
     });
   }
 
+  // ----- State action-membership relationships. A `StateActionMembership` rel
+  // whose SOURCE is a StateUsage/StateDefinition emits `do <targetName>;` inside
+  // that state's body — the state-behavior `do` compartment member (validated:
+  // `do <ref>;` and `do '<quoted name>';` both parse inside a state body; rendered
+  // by the decisym viewer's entry/do/exit compartment parse, which strips quotes).
+  // The reference is quoteName'd so function names with spaces/`&` (e.g. "Monitor
+  // Flow & Stability") become `do 'Monitor Flow & Stability';` rather than an
+  // invalid bare token. Merged into nestedByOwner so it flows through the same
+  // body-emission path.
+  for (const rel of relationships) {
+    if (rel.type !== "StateActionMembership") continue;
+    const srcId = rel.sourceIds[0];
+    if (srcId === undefined || !elementIds.has(srcId)) continue;
+    const rawDoRef =
+      typeof rel.raw?.doRef === "string" && rel.raw.doRef.length > 0
+        ? (rel.raw.doRef as string)
+        : refNameRaw(rel.targetIds[0], elementById);
+    if (rawDoRef === null) continue;
+    addNested(nestedByOwner, {
+      ownerId: srcId,
+      text: `do ${quoteName(rawDoRef)};`,
+    });
+  }
+
   // Group non-suppressed elements by owner id ONCE, so each element's children
   // are an O(1) lookup instead of a full O(n) re-scan per recursion level.
   // Built after suppressedElementIds is finalized; insertion order mirrors the
@@ -440,10 +553,39 @@ export function serializeToSysml(
 
   const lines: string[] = [];
 
+  // Build the inferred-entry lookup: id → entry.
+  // Also determine which element ids are tagged (by provenanceSourceId).
+  const inferredById = new Map<string, InferredApprovedEntry>(
+    (approvedInferredEntries ?? []).map((e) => [e.id, e])
+  );
+
+  // Determine if any element needs a metatag:
+  //   - provenanceSourceId matches an approved inferred entry id → "inferred"
+  //   - provenanceSourceId === "model-asserted" and emitAssertedTags → "asserted"
+  const emitAssertedTags = options?.emitAssertedTags ?? false;
+  const taggedElements: Array<{
+    element: SysmlElement;
+    provenanceClass: "inferred" | "asserted";
+    entry: InferredApprovedEntry | null;
+  }> = [];
+
+  for (const e of elements) {
+    const prov = e.raw?.provenanceSourceId;
+    if (typeof prov !== "string" || prov.length === 0) continue;
+    if (inferredById.has(prov)) {
+      taggedElements.push({ element: e, provenanceClass: "inferred", entry: inferredById.get(prov)! });
+    } else if (emitAssertedTags && prov === "model-asserted") {
+      taggedElements.push({ element: e, provenanceClass: "asserted", entry: null });
+    }
+  }
+
+  const needsMetatags = taggedElements.length > 0;
+
   // TF-10: emit `import ScalarValues::*;` at the very top when the model
-  // references any standard scalar value type (Real, Integer, ...). Only when
-  // needed — so scalar-free models stay byte-identical.
-  if (referencesScalarType(elements)) {
+  // references any standard scalar value type (Real, Integer, ...) OR when
+  // metatag emission is needed (the def uses ScalarValues:: types). Only when
+  // needed — so scalar-free models without metatags stay byte-identical.
+  if (referencesScalarType(elements) || needsMetatags) {
     lines.push("import ScalarValues::*;");
     lines.push("");
   }
@@ -461,7 +603,15 @@ export function serializeToSysml(
     serializeElement(root, null, 0, ctx);
   }
 
-  // Emit trace relationship statements (flat, package-level — usages only).
+  // Emit trace relationship statements wrapped in a package body.
+  // Wrapping in a package (rather than top-level emission) is required so the
+  // decisym-viewer parser can resolve the relationships: both `satisfy` and
+  // `dependency` handlers require a non-None parent element — top-level
+  // statements with parent=None are silently dropped by parse_top_level().
+  // A `package 'ANGARS Trace' { ... }` block gives each statement a parent
+  // context while remaining valid per the grammar (satisfyRequirementUsage is
+  // legal inside packageMember → usageElement → occurrenceUsageElement →
+  // behaviorUsageElement; dependency is a definitionElement).
   const traceLines: string[] = [];
   for (const rel of relationships) {
     const emitter = TRACE_EMIT[rel.type];
@@ -476,10 +626,12 @@ export function serializeToSysml(
 
   if (traceLines.length > 0) {
     lines.push("");
-    lines.push("// traceability");
+    lines.push("package 'ANGARS Trace' {");
+    lines.push("  // traceability");
     for (const tl of traceLines) {
-      lines.push(tl);
+      lines.push(`  ${tl}`);
     }
+    lines.push("}");
   }
 
   // Any nested statements whose owner was NOT emitted at all (e.g. the owner
@@ -490,6 +642,27 @@ export function serializeToSysml(
   for (const [ownerId, stmts] of nestedByOwner) {
     if (elementIds.has(ownerId)) continue;
     for (const s of stmts) lines.push(s);
+  }
+
+  // ── InferenceProvenance metatag emission (F8 §5) ──────────────────────────
+  // Emitted AFTER all element/trace content so it does not interfere with the
+  // structural model parse. Def is emitted once; about blocks per tagged element.
+  // RATIONALE IS NEVER EXPORTED (DEBAT-04). premiseRefs carries ids only.
+  if (needsMetatags) {
+    lines.push("");
+    lines.push(inferenceProvenanceDefBlock());
+    for (const { element, provenanceClass, entry } of taggedElements) {
+      if (element.name === null) continue;
+      lines.push("");
+      lines.push(
+        inferenceProvenanceAboutBlock(element.name, provenanceClass, {
+          confidence: entry?.confidence,
+          premises: entry?.premises,
+          inferenceRunId: entry?.inferenceRunId,
+          approvedBy: entry?.approvedBy,
+        })
+      );
+    }
   }
 
   // Ensure output ends with a single newline
@@ -681,6 +854,18 @@ function refName(
   return quoteName(element.name);
 }
 
+/** Like refName but returns the RAW (unquoted) name, for callers that apply
+ *  their own quoting (e.g. the `do <ref>;` state-member emitter). */
+function refNameRaw(
+  id: string | undefined,
+  elementById: Map<string, SysmlElement>
+): string | null {
+  if (id === undefined) return null;
+  const element = elementById.get(id);
+  if (!element) return null;
+  return element.name;
+}
+
 // ---------------------------------------------------------------------------
 // Nested-statement endpoint resolution
 // ---------------------------------------------------------------------------
@@ -749,7 +934,8 @@ function resolveNestedFromEndpoints(
   elementById: Map<string, SysmlElement>,
   elementIds: Set<string>,
   payloadType?: string | null,
-  typeName?: string | null
+  typeName?: string | null,
+  guard?: string | null
 ): NestedStmt | null {
   if (srcId === undefined || tgtId === undefined) return null;
 
@@ -763,7 +949,7 @@ function resolveNestedFromEndpoints(
 
   return {
     ownerId,
-    text: nestedStatement(kind, srcRef, tgtRef, name, payloadType, typeName),
+    text: nestedStatement(kind, srcRef, tgtRef, name, payloadType, typeName, guard),
   };
 }
 

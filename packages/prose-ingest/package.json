@@ -1,0 +1,36 @@
+{
+  "name": "@sysml-bridge/prose-ingest",
+  "version": "0.1.0",
+  "description": "PDF parsing, text chunking, and requirement detection for ANGARS corpus ingestion",
+  "author": "Joe Cohen",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joescohen/sysml-bridge.git",
+    "directory": "packages/prose-ingest"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.54.0",
+    "@sysml-bridge/ir": "workspace:*",
+    "unpdf": "^1.6",
+    "mupdf": "^1.27",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

@@ -176,3 +176,155 @@ describe("serializeToSysml", () => {
     expect(serializeToSysml([req], [])).toContain("// @source: ANGARS-4");
   });
 });
+
+// ---------------------------------------------------------------------------
+// T2 — Control node emission tests (decide / fork / join / merge)
+// ---------------------------------------------------------------------------
+
+describe("T2 — control node emission (decide/fork/join/merge)", () => {
+  it("emits 'decide <name>;' for DecisionNode inside an action def body", () => {
+    const actionDef = el({ id: "a1", type: "ActionDefinition", name: "RefuelingProcess", ownerId: null });
+    const decideNode = el({ id: "d1", type: "DecisionNode", name: "fuelCheck", ownerId: "a1" });
+    const out = serializeToSysml([actionDef, decideNode], []);
+    expect(out).toContain("action def RefuelingProcess {");
+    expect(out).toContain("decide fuelCheck;");
+  });
+
+  it("emits 'fork <name>;' for ForkNode inside an action def body", () => {
+    const actionDef = el({ id: "a1", type: "ActionDefinition", name: "RefuelingProcess", ownerId: null });
+    const forkNode = el({ id: "f1", type: "ForkNode", name: "dispatch", ownerId: "a1" });
+    const out = serializeToSysml([actionDef, forkNode], []);
+    expect(out).toContain("fork dispatch;");
+  });
+
+  it("emits 'join <name>;' for JoinNode inside an action def body", () => {
+    const actionDef = el({ id: "a1", type: "ActionDefinition", name: "RefuelingProcess", ownerId: null });
+    const joinNode = el({ id: "j1", type: "JoinNode", name: "sync", ownerId: "a1" });
+    const out = serializeToSysml([actionDef, joinNode], []);
+    expect(out).toContain("join sync;");
+  });
+
+  it("emits 'merge <name>;' for MergeNode inside an action def body", () => {
+    const actionDef = el({ id: "a1", type: "ActionDefinition", name: "RefuelingProcess", ownerId: null });
+    const mergeNode = el({ id: "m1", type: "MergeNode", name: "done", ownerId: "a1" });
+    const out = serializeToSysml([actionDef, mergeNode], []);
+    expect(out).toContain("merge done;");
+  });
+
+  it("emits guarded succession 'first X if <guard> then Y;' for Succession with guard in raw", () => {
+    // An action def with two actions and a guarded succession between them.
+    const actionDef = el({ id: "a1", type: "ActionDefinition", name: "RefuelingProcess", ownerId: null });
+    const src = el({ id: "s1", type: "ActionUsage", name: "fuelCheck", ownerId: "a1" });
+    const tgt = el({ id: "t1", type: "ActionUsage", name: "Proceed", ownerId: "a1" });
+    const rel: SysmlRelationship = {
+      id: "rel1",
+      type: "Succession",
+      sourceIds: ["s1"],
+      targetIds: ["t1"],
+      raw: { guard: "fuelSufficient", ownerId: "a1" },
+    };
+    const out = serializeToSysml([actionDef, src, tgt], [rel]);
+    expect(out).toContain("first fuelCheck if fuelSufficient then Proceed;");
+  });
+
+  it("emits plain succession 'first X then Y;' when no guard in raw", () => {
+    const actionDef = el({ id: "a1", type: "ActionDefinition", name: "RefuelingProcess", ownerId: null });
+    const src = el({ id: "s1", type: "ActionUsage", name: "Receive", ownerId: "a1" });
+    const tgt = el({ id: "t1", type: "ActionUsage", name: "Validate", ownerId: "a1" });
+    const rel: SysmlRelationship = {
+      id: "rel1",
+      type: "Succession",
+      sourceIds: ["s1"],
+      targetIds: ["t1"],
+      raw: { ownerId: "a1" },
+    };
+    const out = serializeToSysml([actionDef, src, tgt], [rel]);
+    expect(out).toContain("first Receive then Validate;");
+    expect(out).not.toContain(" if ");
+  });
+
+  it("emits a state 'do <ref>;' member for a StateActionMembership rel (bare identifier)", () => {
+    const stateDef = el({ id: "sd1", type: "StateDefinition", name: "Modes", ownerId: null });
+    const mode = el({ id: "st1", type: "StateUsage", name: "greet", ownerId: "sd1" });
+    const action = el({ id: "ac1", type: "ActionUsage", name: "monitorProximity", ownerId: "fn0" });
+    const rel: SysmlRelationship = {
+      id: "sam1",
+      type: "StateActionMembership",
+      sourceIds: ["st1"],
+      targetIds: ["ac1"],
+      raw: { doRef: "monitorProximity", ownerId: "sd1" },
+    };
+    const out = serializeToSysml([stateDef, mode, action], [rel]);
+    expect(out).toContain("state greet {");
+    expect(out).toContain("do monitorProximity;");
+    // No spurious bare relationship-element declaration.
+    expect(out).not.toContain("StateActionMembership;");
+  });
+
+  it("quotes a state 'do' ref whose name is not a valid identifier (spaces / '&')", () => {
+    const stateDef = el({ id: "sd1", type: "StateDefinition", name: "Modes", ownerId: null });
+    const mode = el({ id: "st1", type: "StateUsage", name: "Docking and Fueling", ownerId: "sd1" });
+    const action = el({ id: "ac1", type: "ActionUsage", name: "Monitor Flow & Stability", ownerId: "fn0" });
+    const rel: SysmlRelationship = {
+      id: "sam2",
+      type: "StateActionMembership",
+      sourceIds: ["st1"],
+      targetIds: ["ac1"],
+      raw: { doRef: "Monitor Flow & Stability", ownerId: "sd1" },
+    };
+    const out = serializeToSysml([stateDef, mode, action], [rel]);
+    // The '&' and spaces force quoting so the member parses (Gate-2 clean).
+    expect(out).toContain("do 'Monitor Flow & Stability';");
+  });
+
+  it("falls back to the target element name when a StateActionMembership has no doRef", () => {
+    const stateDef = el({ id: "sd1", type: "StateDefinition", name: "Modes", ownerId: null });
+    const mode = el({ id: "st1", type: "StateUsage", name: "meet", ownerId: "sd1" });
+    const action = el({ id: "ac1", type: "ActionUsage", name: "Authenticate Aircraft", ownerId: "fn0" });
+    const rel: SysmlRelationship = {
+      id: "sam3",
+      type: "StateActionMembership",
+      sourceIds: ["st1"],
+      targetIds: ["ac1"],
+      raw: { ownerId: "sd1" }, // no doRef → resolve from target name
+    };
+    const out = serializeToSysml([stateDef, mode, action], [rel]);
+    expect(out).toContain("do 'Authenticate Aircraft';");
+  });
+
+  it("emits a full control-flow fixture matching the demo: decide+fork+join+merge+guarded", () => {
+    // Mirror examples/demos/activity-control-flow.sysml structure (simplified subset).
+    const actionDef = el({ id: "a0", type: "ActionDefinition", name: "Refueling Request Handling", ownerId: null });
+    const receive = el({ id: "a1", type: "ActionUsage", name: "Receive Request", ownerId: "a0" });
+    const validate = el({ id: "a2", type: "ActionUsage", name: "Validate Fuel Capacity", ownerId: "a0" });
+    const decide = el({ id: "d1", type: "DecisionNode", name: "fuelCheck", ownerId: "a0" });
+    const reject = el({ id: "a3", type: "ActionUsage", name: "Reject Request", ownerId: "a0" });
+    const fork = el({ id: "f1", type: "ForkNode", name: "dispatch", ownerId: "a0" });
+    const join = el({ id: "j1", type: "JoinNode", name: "sync", ownerId: "a0" });
+    const merge = el({ id: "m1", type: "MergeNode", name: "done", ownerId: "a0" });
+
+    // Plain succession: receive → validate
+    const rel1: SysmlRelationship = { id: "r1", type: "Succession", sourceIds: ["a1"], targetIds: ["a2"], raw: { ownerId: "a0" } };
+    // Plain succession: validate → decide
+    const rel2: SysmlRelationship = { id: "r2", type: "Succession", sourceIds: ["a2"], targetIds: ["d1"], raw: { ownerId: "a0" } };
+    // Guarded: decide --fuelLow--> reject
+    const rel3: SysmlRelationship = { id: "r3", type: "Succession", sourceIds: ["d1"], targetIds: ["a3"], raw: { guard: "fuelLow", ownerId: "a0" } };
+    // Guarded: decide --fuelSufficient--> fork
+    const rel4: SysmlRelationship = { id: "r4", type: "Succession", sourceIds: ["d1"], targetIds: ["f1"], raw: { guard: "fuelSufficient", ownerId: "a0" } };
+    // Plain: join → merge
+    const rel5: SysmlRelationship = { id: "r5", type: "Succession", sourceIds: ["j1"], targetIds: ["m1"], raw: { ownerId: "a0" } };
+
+    const elements = [actionDef, receive, validate, decide, reject, fork, join, merge];
+    const rels = [rel1, rel2, rel3, rel4, rel5];
+    const out = serializeToSysml(elements, rels);
+
+    expect(out).toContain("action def 'Refueling Request Handling' {");
+    expect(out).toContain("decide fuelCheck;");
+    expect(out).toContain("fork dispatch;");
+    expect(out).toContain("join sync;");
+    expect(out).toContain("merge done;");
+    expect(out).toContain("first 'Receive Request' then 'Validate Fuel Capacity';");
+    expect(out).toContain("first fuelCheck if fuelLow then 'Reject Request';");
+    expect(out).toContain("first fuelCheck if fuelSufficient then dispatch;");
+  });
+});
