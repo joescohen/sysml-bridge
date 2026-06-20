@@ -172,6 +172,32 @@ function stripComments(text: string): string {
  *   - optional typedBy from `: TypeName` (but NOT `:>`)
  *   - optional specializes from `:> TypeName`
  */
+/**
+ * Read a SysML v2 quoted name beginning at `s[0] === "'"`, honoring the grammar
+ * escape rules (`\'` → `'`, `\\` → `\`; see SysMLv2Lexer.g4 STRING token). Returns
+ * the unescaped value and the remaining text after the closing quote, or null if
+ * the name is unterminated. A naive `indexOf("'", 1)` mis-stops on an escaped
+ * quote, so a serialized name like `'O\'Brien'` must be read this way to round-trip.
+ */
+function readQuotedName(s: string): { value: string; rest: string } | null {
+  let i = 1;
+  let out = "";
+  while (i < s.length) {
+    const c = s[i];
+    if (c === "\\" && i + 1 < s.length) {
+      out += s[i + 1];
+      i += 2;
+      continue;
+    }
+    if (c === "'") {
+      return { value: out, rest: s.slice(i + 1) };
+    }
+    out += c;
+    i++;
+  }
+  return null;
+}
+
 function parseElementRest(rest: string): {
   name: string;
   shortName?: string;
@@ -194,10 +220,10 @@ function parseElementRest(rest: string): {
   // 2. Element name — identifier or quoted string
   let name: string | null = null;
   if (remaining.startsWith("'")) {
-    const end = remaining.indexOf("'", 1);
-    if (end === -1) return null;
-    name = remaining.slice(1, end);
-    remaining = remaining.slice(end + 1).trim();
+    const q = readQuotedName(remaining);
+    if (q === null) return null;
+    name = q.value;
+    remaining = q.rest.trim();
   } else {
     const m = remaining.match(/^([a-zA-Z_][a-zA-Z0-9_]*)/);
     if (!m) return null;

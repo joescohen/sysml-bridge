@@ -99,6 +99,16 @@ export function relationalFindings(
       }
     }
     for (const rel of relationships) {
+      // FileStore stores relationships AS elements, so a relationship's id is
+      // ALSO an element id and was already accounted for by the element scan
+      // above — the relationship and the element are the SAME entity. Skipping
+      // those avoids fabricating a GATE02-id-duplicate for every trace edge
+      // (which would fail the binary gate on a perfectly-traced model). Only a
+      // relationship that is a separate entity from any element (e.g. a SMAPS
+      // backend where relationships are not in the element set) can contribute a
+      // genuine extra id; a true duplicate relationship-element id is still
+      // caught by the element scan, since both copies appear in `elements`.
+      if (byId.has(rel.id)) continue;
       if (seen.has(rel.id)) {
         findings.push({
           elementId: rel.id,

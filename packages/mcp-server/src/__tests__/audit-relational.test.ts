@@ -287,6 +287,28 @@ describe("relationalFindings — seeded-defect fixture (GATE-02 ROADMAP criterio
     expect(mentionsDup).toBe(true);
   });
 
+  it("Defect 5 (regression): trace edges are NOT fabricated as duplicate ids", async () => {
+    // FileStore stores relationships AS elements, so queryElements() and
+    // queryRelationships() return the same relationship objects. The duplicate
+    // scan must not double-count them — otherwise every satisfy/verify/derive
+    // edge fabricates a GATE02-id-duplicate error and a perfectly-traced model
+    // FAILs the binary gate. Only the genuinely-seeded 'dup-1' element pair may
+    // produce a duplicate finding; no relationship id may.
+    const elements = await store.queryElements();
+    const relationships = await store.queryRelationships();
+    const findings = relationalFindings(elements, relationships);
+
+    const relIds = new Set(relationships.map((r) => r.id));
+    const falseRelDups = byRule(findings, "GATE02-id-duplicate").filter((f) =>
+      relIds.has(f.elementId)
+    );
+    expect(falseRelDups).toHaveLength(0);
+
+    // The only duplicate finding is the seeded element pair.
+    const dups = byRule(findings, "GATE02-id-duplicate");
+    expect(dups.every((f) => f.message.includes("dup-1"))).toBe(true);
+  });
+
   // --------------------------------------------------------------------------
   // Defect 6: GATE02-uncovered-need
   // --------------------------------------------------------------------------

@@ -138,7 +138,7 @@ function nestedStatement(
   switch (kind) {
     case "connect":
       return name !== null
-        ? `connection ${name} connect ${src} to ${tgt};`
+        ? `connection ${quoteName(name)} connect ${src} to ${tgt};`
         : `connect ${src} to ${tgt};`;
     case "bind":
       return `bind ${src} = ${tgt};`;
@@ -164,7 +164,7 @@ function nestedStatement(
           typeof typeName === "string" && typeName.length > 0
             ? ` : ${quoteName(typeName)}`
             : "";
-        return `interface ${name}${typed} connect ${src} to ${tgt};`;
+        return `interface ${quoteName(name)}${typed} connect ${src} to ${tgt};`;
       }
       return `interface connect ${src} to ${tgt};`;
   }
@@ -721,7 +721,7 @@ function serializeElement(
   let header = `${prefix}${keyword}`;
 
   if (element.shortName !== null) {
-    header += ` <'${element.shortName}'>`;
+    header += ` <'${escapeQuotedName(element.shortName)}'>`;
   }
 
   if (element.name !== null) {
@@ -837,10 +837,55 @@ function isValidIdentifier(name: string): boolean {
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name);
 }
 
-/** Render a name as a SysML reference token: bare when it is a valid
- *  identifier, otherwise single-quoted (`'Some Name'`). */
+// SysML v2 reserved keywords (lexer tokens in docs/sysml-v2-reference/grammar/
+// SysMLv2Lexer.g4). ANTLR lexes these literals with precedence over IDENTIFIER,
+// so an element whose name is exactly one of them — e.g. a port named `out`, a
+// part named `state` — MUST be emitted as a quoted name (`'out'`), never bare,
+// or the file fails the grammar gate. Case-sensitive: all keywords are lower
+// case, so `State`/`Out` are fine bare. Sourced from the vendored grammar, not
+// from memory (R1).
+const RESERVED_KEYWORDS = new Set<string>([
+  "about", "abstract", "accept", "action", "actor", "after", "alias", "all",
+  "allocate", "allocation", "analysis", "and", "as", "assert", "assign", "assoc",
+  "assume", "at", "attribute", "behavior", "bind", "binding", "bool", "by",
+  "calc", "case", "chains", "class", "classifier", "comment", "composite",
+  "concern", "conjugate", "conjugates", "conjugation", "connect", "connection",
+  "connector", "const", "constant", "constraint", "crosses", "datatype",
+  "decide", "def", "default", "defined", "dependency", "derived", "differences",
+  "disjoining", "disjoint", "do", "doc", "else", "end", "entry", "enum", "event",
+  "exhibit", "exit", "expose", "expr", "false", "feature", "featured",
+  "featuring", "filter", "first", "flow", "for", "fork", "frame", "from",
+  "function", "hastype", "if", "implies", "import", "in", "include",
+  "individual", "inout", "interaction", "interface", "intersects", "inv",
+  "inverse", "inverting", "istype", "item", "join", "language", "library",
+  "locale", "loop", "member", "merge", "message", "meta", "metaclass",
+  "metadata", "multiplicity", "namespace", "new", "nonunique", "not", "null",
+  "objective", "occurrence", "of", "or", "ordered", "out", "package", "parallel",
+  "part", "perform", "port", "portion", "predicate", "private", "protected",
+  "public", "redefines", "redefinition", "ref", "references", "render",
+  "rendering", "rep", "require", "requirement", "return", "satisfy", "send",
+  "snapshot", "specialization", "specializes", "stakeholder", "standard",
+  "state", "step", "struct", "subclassifier", "subject", "subset", "subsets",
+  "subtype", "succession", "terminate", "then", "timeslice", "to", "transition",
+  "true", "type", "typed", "typing", "unions", "until", "use", "var", "variant",
+  "variation", "verification", "verify", "via", "view", "viewpoint", "when",
+  "while", "xor",
+]);
+
+/** Escape a name for emission inside a SysML v2 quoted name (`'...'`). Per the
+ *  grammar token `STRING: '\'' ('\\' . | ~['\\])* '\''`, a literal backslash
+ *  and a literal single quote must be backslash-escaped (backslash first). */
+function escapeQuotedName(name: string): string {
+  return name.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+/** Render a name as a SysML reference token: bare when it is a valid identifier
+ *  AND not a reserved keyword, otherwise single-quoted with escapes
+ *  (`'Some Name'`, `'out'`, `'O\'Brien'`). */
 function quoteName(name: string): string {
-  return isValidIdentifier(name) ? name : `'${name}'`;
+  return isValidIdentifier(name) && !RESERVED_KEYWORDS.has(name)
+    ? name
+    : `'${escapeQuotedName(name)}'`;
 }
 
 function refName(
@@ -887,12 +932,20 @@ function resolveEndpointId(
   return idByName.get(endpoint) ?? endpoint;
 }
 
+/** Quote a possibly-qualified reference (`a.b.c`) segment-by-segment so each dot
+ *  segment is individually keyword/space-safe — e.g. `battery.'bus out'` — while
+ *  a clean ref like `battery.dcOut` is returned unchanged. The dot separators
+ *  themselves are never quoted. */
+function quoteRef(ref: string): string {
+  return ref.split(".").map(quoteName).join(".");
+}
+
 /**
  * Resolve a reference name for an endpoint id:
  *   - direct child of the common owner → simple name
  *   - a port/feature owned by a child of the owner → `<childName>.<portName>`
- * If the id is not a known element, the id/string is returned verbatim (it may
- * already be a literal name or a qualified ref).
+ * If the id is not a known element, the id/string is quoted per-segment as a
+ * literal reference (it may already be a literal name or a qualified ref).
  */
 function endpointRefName(
   endpointId: string | undefined,
@@ -902,8 +955,9 @@ function endpointRefName(
   if (endpointId === undefined) return null;
   const e = elementById.get(endpointId);
   if (!e) {
-    // Not a known element id — treat as a literal reference string.
-    return endpointId;
+    // Not a known element id — treat as a literal reference string, quoting
+    // each dotted segment so multi-word / keyword endpoints stay grammar-valid.
+    return quoteRef(endpointId);
   }
   if (e.name === null) return null;
   const simple = quoteName(e.name);
