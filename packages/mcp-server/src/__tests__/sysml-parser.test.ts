@@ -487,6 +487,200 @@ describe("parseSysml — empty input", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 15. Round-trip recovery of constructs the serializer emits
+//
+// These close the gaps documented in docs/VALIDATION.md "Known limitations":
+// the line parser previously reported "Unparseable line" for serializer output
+// it could not recover, losing data on a serialize→import round-trip. Each
+// snippet below is in the EXACT shape the serializer emits.
+// ---------------------------------------------------------------------------
+
+describe("parseSysml — bare enumeration literals (round-trip)", () => {
+  it("recovers bare literals inside an enum def body as EnumerationUsage children", () => {
+    // Shape emitted by the serializer: a child of an EnumerationDefinition is a
+    // bare `<name>;` with no `enum` keyword.
+    const input = `enum def Chem {
+  LiIon;
+  NiMH;
+}`;
+    const result = parseSysml(input);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.elements).toHaveLength(1);
+
+    const chem = result.elements[0];
+    expect(chem.type).toBe("EnumerationDefinition");
+    expect(chem.name).toBe("Chem");
+    expect(chem.children).toHaveLength(2);
+    expect(chem.children.map((c) => c.type)).toEqual([
+      "EnumerationUsage",
+      "EnumerationUsage",
+    ]);
+    expect(chem.children.map((c) => c.name)).toEqual(["LiIon", "NiMH"]);
+  });
+
+  it("recovers a quoted enum literal (non-identifier name)", () => {
+    const input = `enum def Chem {
+  'Li-Ion';
+}`;
+    const result = parseSysml(input);
+
+    expect(result.errors).toHaveLength(0);
+    const chem = result.elements[0];
+    expect(chem.children).toHaveLength(1);
+    expect(chem.children[0].type).toBe("EnumerationUsage");
+    expect(chem.children[0].name).toBe("Li-Ion");
+  });
+
+  it("does not treat bare identifiers outside an enum body as literals", () => {
+    // A lone identifier at top level is still unparseable — the enum-literal
+    // recovery only fires inside an EnumerationDefinition body.
+    const result = parseSysml("LiIon;");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.elements).toHaveLength(0);
+  });
+});
+
+describe("parseSysml — nested verify in objective body (round-trip)", () => {
+  it("recovers `verify R1;` inside a verification def objective body", () => {
+    // Shape emitted by the serializer for a VerifyRequirementUsage edge.
+    const input = `verification def V {
+  objective {
+    verify R1;
+  }
+}`;
+    const result = parseSysml(input);
+
+    expect(result.errors).toHaveLength(0);
+
+    // The verification case itself is recovered as an element.
+    expect(result.elements).toHaveLength(1);
+    expect(result.elements[0].type).toBe("VerificationCaseDefinition");
+    expect(result.elements[0].name).toBe("V");
+
+    // The verify edge: source = the verification case (`by`), target = the
+    // requirement (`requirement`).
+    expect(result.relationships).toHaveLength(1);
+    const rel = result.relationships[0];
+    expect(rel.type).toBe("verify");
+    expect(rel.requirement).toBe("R1");
+    expect(rel.by).toBe("V");
+  });
+
+  it("recovers multiple verify targets in one objective body", () => {
+    const input = `verification def V {
+  objective {
+    verify R1;
+    verify R2;
+  }
+}`;
+    const result = parseSysml(input);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.relationships).toHaveLength(2);
+    expect(result.relationships.map((r) => r.requirement)).toEqual(["R1", "R2"]);
+    expect(result.relationships.every((r) => r.type === "verify")).toBe(true);
+    expect(result.relationships.every((r) => r.by === "V")).toBe(true);
+  });
+
+  it("still parses the flat `verify <req> by <element>;` form", () => {
+    // The nested-form recovery must not regress the flat relationship form.
+    const result = parseSysml("verify massReq by testPlan;");
+    expect(result.errors).toHaveLength(0);
+    expect(result.relationships).toHaveLength(1);
+    expect(result.relationships[0]).toMatchObject({
+      type: "verify",
+      requirement: "massReq",
+      by: "testPlan",
+    });
+  });
+});
+
+describe("parseSysml — quoted names containing braces (round-trip)", () => {
+  it("does not let braces inside a quoted name corrupt nesting", () => {
+    // The serializer quotes non-identifier names; a name containing `{`/`}`
+    // must not be split as a nesting delimiter.
+    const input = `part def 'Has{Brace}' {
+  part inner;
+}`;
+    const result = parseSysml(input);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.elements).toHaveLength(1);
+
+    const outer = result.elements[0];
+    expect(outer.type).toBe("PartDefinition");
+    expect(outer.name).toBe("Has{Brace}");
+    expect(outer.children).toHaveLength(1);
+    expect(outer.children[0].type).toBe("PartUsage");
+    expect(outer.children[0].name).toBe("inner");
+  });
+
+  it("recovers a quoted brace name with no body", () => {
+    const result = parseSysml("part def 'Open{Only';");
+    expect(result.errors).toHaveLength(0);
+    expect(result.elements).toHaveLength(1);
+    expect(result.elements[0].name).toBe("Open{Only");
+  });
+
+  it("keeps sibling identity intact after a brace-bearing name", () => {
+    const input = `package P {
+  part def 'A{1}';
+  part def B;
+}`;
+    const result = parseSysml(input);
+
+    expect(result.errors).toHaveLength(0);
+    const pkg = result.elements[0];
+    expect(pkg.children).toHaveLength(2);
+    expect(pkg.children.map((c) => c.name)).toEqual(["A{1}", "B"]);
+  });
+});
+
+describe("parseSysml — combined round-trip (kitchen sink)", () => {
+  it("recovers enum literals, nested verify, and brace names together", () => {
+    const input = `package Demo {
+  enum def Chem {
+    LiIon;
+    NiMH;
+  }
+
+  requirement def R1;
+
+  part def 'Pack{A}';
+
+  verification def V {
+    objective {
+      verify R1;
+    }
+  }
+}`;
+    const result = parseSysml(input);
+
+    expect(result.errors).toHaveLength(0);
+
+    const enumDef = findElement(result, "Chem");
+    expect(enumDef).toBeDefined();
+    expect(enumDef!.children.map((c) => c.name)).toEqual(["LiIon", "NiMH"]);
+
+    const bracePart = findElement(result, "Pack{A}");
+    expect(bracePart).toBeDefined();
+    expect(bracePart!.type).toBe("PartDefinition");
+
+    const verCase = findElement(result, "V");
+    expect(verCase).toBeDefined();
+    expect(verCase!.type).toBe("VerificationCaseDefinition");
+
+    expect(result.relationships).toHaveLength(1);
+    expect(result.relationships[0]).toMatchObject({
+      type: "verify",
+      requirement: "R1",
+      by: "V",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Additional integration: mixed content
 // ---------------------------------------------------------------------------
 
