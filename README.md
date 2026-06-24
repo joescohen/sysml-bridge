@@ -203,6 +203,11 @@ A non-zero result at step 3 stops the gate — fix the syntax from the vendored 
 Run the unit tests when you touch serializer or generator code:
 `pnpm --filter mcp-server test`.
 
+Want one command that proves the gate holds at breadth? `pnpm stress:sysml` builds dozens of
+diverse and deliberately hostile models (reserved-keyword names, embedded quotes, deep nesting,
+every SysML aspect), serializes each, and asserts **every one passes the grammar validator**. It
+exits non-zero if any model would fail to import — a CI-ready guard on the core claim.
+
 ## Importing into Cameo
 
 The local validator checks **grammar**; Cameo is the binding **semantic** gate. To materialize

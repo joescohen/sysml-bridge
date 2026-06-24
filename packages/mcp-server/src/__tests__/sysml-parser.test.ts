@@ -537,3 +537,26 @@ describe("parseSysml — integration", () => {
     expect(result.relationships[0].type).toBe("satisfy");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Quoted-name escapes — round-trip with the serializer's escapeQuotedName
+// ---------------------------------------------------------------------------
+
+describe("parseSysml — quoted-name escapes", () => {
+  it("unescapes an embedded apostrophe in a quoted name", () => {
+    const result = parseSysml("part def 'O\\'Brien Sensor';");
+    expect(result.elements).toHaveLength(1);
+    expect(result.elements[0].name).toBe("O'Brien Sensor");
+  });
+
+  it("unescapes an embedded backslash in a quoted name", () => {
+    const result = parseSysml("part def 'path\\\\to';");
+    expect(result.elements).toHaveLength(1);
+    expect(result.elements[0].name).toBe("path\\to");
+  });
+
+  it("still reads a plain multi-word quoted name", () => {
+    const result = parseSysml("part def 'Power Link';");
+    expect(result.elements[0].name).toBe("Power Link");
+  });
+});

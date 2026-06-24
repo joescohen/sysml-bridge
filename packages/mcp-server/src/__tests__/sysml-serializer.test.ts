@@ -328,3 +328,122 @@ describe("T2 — control node emission (decide/fork/join/merge)", () => {
     expect(out).toContain("first fuelCheck if fuelSufficient then dispatch;");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Name quoting & escaping (grammar-gate hardening).
+//
+// Regression coverage for two serializer bugs found by synthetic stress
+// testing: (1) element names that collide with SysML v2 reserved keywords were
+// emitted bare and broke the grammar gate; (2) embedded single quotes / back-
+// slashes in names were not escaped inside the `'...'` quoting. Both produced
+// .sysml that failed the local ANTLR validator (and would not import to Cameo).
+// ---------------------------------------------------------------------------
+describe("serializeToSysml — name quoting & escaping", () => {
+  it("quotes element names that are reserved keywords (state/part/action)", () => {
+    for (const kw of ["state", "part", "action", "requirement", "connect"]) {
+      const out = serializeToSysml(
+        [el({ id: "e1", type: "PartDefinition", name: kw })],
+        []
+      );
+      expect(out).toBe(`part def '${kw}';\n`);
+    }
+  });
+
+  it("quotes ports named `in` / `out` (reserved flow-direction keywords)", () => {
+    const def = el({ id: "d", type: "PartDefinition", name: "Node" });
+    const pin = el({ id: "p1", type: "PortUsage", name: "in", ownerId: "d" });
+    const pout = el({ id: "p2", type: "PortUsage", name: "out", ownerId: "d" });
+    const out = serializeToSysml([def, pin, pout], []);
+    expect(out).toContain("port 'in';");
+    expect(out).toContain("port 'out';");
+  });
+
+  it("leaves capitalized look-alikes bare (keyword check is case-sensitive)", () => {
+    const out = serializeToSysml(
+      [el({ id: "e1", type: "PartDefinition", name: "State" })],
+      []
+    );
+    expect(out).toBe("part def State;\n");
+  });
+
+  it("escapes embedded single quotes inside a quoted name", () => {
+    const out = serializeToSysml(
+      [el({ id: "e1", type: "PartDefinition", name: "O'Brien Sensor" })],
+      []
+    );
+    expect(out).toBe("part def 'O\\'Brien Sensor';\n");
+  });
+
+  it("escapes embedded backslashes (backslash before quote)", () => {
+    const out = serializeToSysml(
+      [el({ id: "e1", type: "PartDefinition", name: "path\\to" })],
+      []
+    );
+    expect(out).toBe("part def 'path\\\\to';\n");
+  });
+
+  it("quotes a multi-word ConnectionUsage name in the nested connect statement", () => {
+    const pkg = el({ id: "p", type: "Package", name: "Net" });
+    const a = el({ id: "a", type: "PartUsage", name: "a", ownerId: "p", raw: { typeName: "A" } });
+    const ap = el({ id: "ap", type: "PortUsage", name: "p", ownerId: "a" });
+    const b = el({ id: "b", type: "PartUsage", name: "b", ownerId: "p", raw: { typeName: "B" } });
+    const bp = el({ id: "bp", type: "PortUsage", name: "q", ownerId: "b" });
+    const conn = el({
+      id: "c",
+      type: "ConnectionUsage",
+      name: "Power Link",
+      ownerId: "p",
+      raw: { sourceEnd: "ap", targetEnd: "bp" },
+    });
+    const out = serializeToSysml([pkg, a, ap, b, bp, conn], []);
+    expect(out).toContain("connection 'Power Link' connect");
+  });
+
+  it("quotes a multi-word InterfaceUsage name in the nested interface statement", () => {
+    const pkg = el({ id: "p", type: "Package", name: "Net" });
+    const a = el({ id: "a", type: "PartUsage", name: "a", ownerId: "p", raw: { typeName: "A" } });
+    const ap = el({ id: "ap", type: "PortUsage", name: "p", ownerId: "a" });
+    const b = el({ id: "b", type: "PartUsage", name: "b", ownerId: "p", raw: { typeName: "B" } });
+    const bp = el({ id: "bp", type: "PortUsage", name: "q", ownerId: "b" });
+    const iface = el({
+      id: "i",
+      type: "InterfaceUsage",
+      name: "Main Bus",
+      ownerId: "p",
+      raw: { sourceEnd: "ap", targetEnd: "bp" },
+    });
+    const out = serializeToSysml([pkg, a, ap, b, bp, iface], []);
+    expect(out).toContain("interface 'Main Bus' connect");
+  });
+
+  it("quotes literal multi-word flow endpoints per segment", () => {
+    const pkg = el({ id: "p", type: "Package", name: "Net" });
+    const def = el({ id: "d", type: "PartDefinition", name: "A", ownerId: "p" });
+    const fl = el({
+      id: "f",
+      type: "FlowConnectionUsage",
+      name: null,
+      ownerId: "d",
+      raw: { sourceEnd: "Some Port", targetEnd: "Other Port" },
+    });
+    const out = serializeToSysml([pkg, def, fl], []);
+    expect(out).toContain("flow from 'Some Port' to 'Other Port';");
+  });
+
+  it("escapes a reserved-keyword shortName / quotes typed-by keyword names", () => {
+    const out = serializeToSysml(
+      [
+        el({ id: "t", type: "PartDefinition", name: "in" }),
+        el({
+          id: "u",
+          type: "PartUsage",
+          name: "inst",
+          raw: { typeName: "in" },
+        }),
+      ],
+      []
+    );
+    // type reference to a keyword-named def must also be quoted
+    expect(out).toContain(": 'in'");
+  });
+});
