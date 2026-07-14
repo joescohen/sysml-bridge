@@ -103,9 +103,10 @@ describe("relationalFindings — seeded-defect fixture (GATE-02 ROADMAP criterio
       target: [{ "@id": verifiedReq.id }],
     });
 
-    // ── Defect 5 (duplicate id): two elements with the same @id ──
-    await store.createElement("PartDefinition", "DupA", { "@id": "dup-1" });
-    await store.createElement("PartDefinition", "DupB", { "@id": "dup-1" });
+    // ── Defect 5 (duplicate id): seeded at the end of beforeEach ──
+    // The FileStore now rejects a duplicate @id at insert time, so this defect
+    // is injected into the persisted doc + reloaded (see below) rather than
+    // created through createElement().
 
     // ── Defect 6 (uncovered-need): Need with no inbound DeriveRequirementUsage ──
     await store.createElement("RequirementDefinition", "UncoveredNeed", {
@@ -150,6 +151,24 @@ describe("relationalFindings — seeded-defect fixture (GATE-02 ROADMAP criterio
 
     cleanReqId = cleanReq.id;
     cleanPartId = cleanPart.id;
+
+    // ── Defect 5 (duplicate id): seed via the persisted doc ──
+    // The FileStore now REJECTS a duplicate @id at insert time (data-integrity
+    // fix), so a duplicate can no longer be created through createElement(). In
+    // production a duplicate id reaches the audit only via a hand-edited / legacy
+    // persisted doc — so we seed it exactly that way: create DupA normally, then
+    // append a second row sharing "dup-1" directly to the on-disk model and
+    // reload. This exercises GATE02-id-duplicate against the data shape it is
+    // actually meant to defend.
+    await store.createElement("PartDefinition", "DupA", { "@id": "dup-1" });
+    const docPath = path.join(dir, `${store.projectId}.json`);
+    const doc = JSON.parse(await fs.readFile(docPath, "utf8")) as {
+      elements: Array<{ id: string; name: string | null; [k: string]: unknown }>;
+    };
+    const dupA = doc.elements.find((e) => e.id === "dup-1")!;
+    doc.elements.push({ ...dupA, name: "DupB" });
+    await fs.writeFile(docPath, JSON.stringify(doc, null, 2), "utf8");
+    await store.loadProject(store.projectId!);
   });
 
   afterEach(async () => {

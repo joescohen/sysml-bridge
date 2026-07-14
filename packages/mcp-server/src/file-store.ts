@@ -62,13 +62,39 @@ export class FileStore implements ModelStore {
   // -------------------------------------------------------------------------
 
   async createProject(name: string): Promise<SmapsProject> {
-    this.projectId = slugify(name);
+    this.projectId = await this.resolveProjectId(name);
     this.projectName = name;
     this.branchId = BRANCH_ID;
     this.headCommitId = HEAD_COMMIT_ID;
     this.elements = [];
     await this.persist();
     return this.toSmapsProject();
+  }
+
+  /**
+   * Resolve the on-disk id for a new project from its name.
+   *
+   * Distinct names that slugify to the same id (e.g. "My Model" vs "my-model")
+   * MUST NOT clobber one another — that silently overwrote the first project's
+   * entire model. We walk numeric suffixes until we hit either a free slot or an
+   * existing project whose stored name MATCHES `name`. The latter preserves the
+   * reset-on-same-name behavior that scripts/generate-cc-model.ts and
+   * e2e-proof.ts rely on (re-running with the same name resets the same file).
+   */
+  private async resolveProjectId(name: string): Promise<string> {
+    const base = slugify(name);
+    let candidate = base;
+    let suffix = 1;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const existing = await this.tryReadDoc(candidate);
+      if (!existing) return candidate; // free slot → brand-new project
+      if (existing.name === name) return candidate; // same project → reset/overwrite
+      // Occupied by a DIFFERENT project that slugifies to the same id:
+      // disambiguate instead of clobbering the existing model.
+      suffix += 1;
+      candidate = `${base}-${suffix}`;
+    }
   }
 
   async loadProject(projectId: string): Promise<SmapsProject> {
@@ -131,6 +157,16 @@ export class FileStore implements ModelStore {
     const created = inputs.map((i) =>
       this.buildElement(i.type, i.name, i.attributes ?? {})
     );
+    // Pre-validate id uniqueness (against the store AND within this batch) so a
+    // mid-batch collision rejects the whole call instead of leaving half the
+    // elements inserted but unpersisted.
+    const seen = new Set<string>();
+    for (const el of created) {
+      if (this.hasId(el.id) || seen.has(el.id)) {
+        throw new Error(`Duplicate element id: ${el.id}`);
+      }
+      seen.add(el.id);
+    }
     for (const el of created) this.insert(el);
     await this.persist();
     return created.map(clone);
@@ -167,10 +203,18 @@ export class FileStore implements ModelStore {
 
   async deleteElement(elementId: string): Promise<void> {
     this.assertInitialized();
-    const el = this.find(elementId);
-    if (!el) return;
+    const idx = this.elements.findIndex(
+      (e) => e.id === elementId || e.elementId === elementId
+    );
+    if (idx === -1) return;
+    const el = this.elements[idx];
     this.detachFromOwner(el);
-    this.elements = this.elements.filter((e) => e.id !== el.id);
+    // Remove exactly the matched row by position — NOT every row sharing this id.
+    // An id-equality filter would delete BOTH halves of a duplicated pair (e.g.
+    // a duplicate that slipped in via a hand-edited / legacy persisted doc).
+    // Splicing the single matched index removes one and leaves the other
+    // reachable so it can be inspected or deleted on its own.
+    this.elements.splice(idx, 1);
     await this.persist();
   }
 
@@ -274,8 +318,21 @@ export class FileStore implements ModelStore {
   }
 
   private insert(el: SysmlElement): void {
+    // Reject a colliding @id BEFORE mutating state. A caller-supplied
+    // attributes["@id"] (forwarded by the create_element tool) is honored as-is
+    // by buildElement with no uniqueness guarantee; without this check a second
+    // element with the same id would push unconditionally, become an unreachable
+    // zombie (find() returns only the first match), and make a single
+    // deleteElement() wipe BOTH rows. Fail loudly instead.
+    if (this.hasId(el.id)) {
+      throw new Error(`Duplicate element id: ${el.id}`);
+    }
     this.elements.push(el);
     this.attachToOwner(el);
+  }
+
+  private hasId(id: string): boolean {
+    return this.elements.some((e) => e.id === id || e.elementId === id);
   }
 
   private attachToOwner(el: SysmlElement): void {
@@ -321,6 +378,16 @@ export class FileStore implements ModelStore {
       throw new Error(`Project "${projectId}" not found in ${this.modelDir}`);
     }
     return JSON.parse(raw) as FileModelDoc;
+  }
+
+  /** Read a model doc, returning null when the file is missing or unreadable. */
+  private async tryReadDoc(projectId: string): Promise<FileModelDoc | null> {
+    try {
+      const raw = await fs.readFile(this.filePath(projectId), "utf8");
+      return JSON.parse(raw) as FileModelDoc;
+    } catch {
+      return null;
+    }
   }
 
   private async persist(): Promise<void> {
