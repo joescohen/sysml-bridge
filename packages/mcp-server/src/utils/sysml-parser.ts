@@ -411,6 +411,40 @@ function matchRelationship(line: string): ParsedRelationship | null {
 }
 
 /**
+ * Match a bare, nested `verify <ref>;` statement — the form the serializer
+ * emits inside a verification def's `objective { ... }` body. This is distinct
+ * from the flat `verify <req> by <element>;` relationship (handled in
+ * matchRelationship); the bare form has no `by` clause, so its source is the
+ * enclosing verification case (resolved by the caller from the element stack).
+ *
+ * Returns the (unquoted) requirement reference, or null if the line is not a
+ * bare verify. The ref may be a dotted/qualified identifier or a quoted name.
+ */
+function matchBareVerify(line: string): string | null {
+  const m = line.match(
+    /^verify\s+(?:'([^']+)'|([a-zA-Z_][a-zA-Z0-9_.]*))\s*$/
+  );
+  if (!m) return null;
+  return m[1] ?? m[2];
+}
+
+/**
+ * Match a bare enumeration literal — the form the serializer emits for a child
+ * of an EnumerationDefinition: `<name>;` with no leading keyword (e.g. the
+ * `LiIon;` / `NiMH;` inside `enum def Chem { LiIon; NiMH; }`). The literal is a
+ * lone identifier or quoted name on the line.
+ *
+ * Returns the (unquoted) literal name, or null if the line is not a bare name.
+ * Only meaningful when the enclosing element is an EnumerationDefinition; the
+ * caller enforces that context.
+ */
+function matchEnumLiteral(line: string): string | null {
+  const m = line.match(/^(?:'([^']+)'|([a-zA-Z_][a-zA-Z0-9_]*))\s*$/);
+  if (!m) return null;
+  return m[1] ?? m[2];
+}
+
+/**
  * Check if a line starts with one of the known skip-prefixes
  * (followed by a space, tab, semicolon, or end of string).
  */
@@ -426,6 +460,23 @@ function isSkippableLine(line: string): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Walk the element-scope stack from the innermost level outward and return the
+ * first real (non-null) element. Brace levels opened by non-element keywords
+ * (e.g. `objective {`) push a null sentinel, so the nearest enclosing element
+ * may be several levels up — for a nested `verify` this is the verification
+ * case that owns the objective body.
+ */
+function nearestEnclosingElement(
+  elementStack: (ParsedElement | null)[]
+): ParsedElement | null {
+  for (let i = elementStack.length - 1; i >= 0; i--) {
+    const el = elementStack[i];
+    if (el) return el;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -533,6 +584,39 @@ export function parseSysml(text: string): ParseResult {
         continue;
       }
 
+      // --- Nested `verify <ref>;` (inside a verification def objective body) ---
+      // The serializer emits verify edges as a nested objective body, not a
+      // flat `verify .. by ..` line. Recover it as a verify relationship whose
+      // source is the enclosing verification case (`by`) and whose target is
+      // the referenced requirement (`requirement`).
+      const verifyTarget = matchBareVerify(lineForParsing);
+      if (verifyTarget !== null) {
+        const enclosing = nearestEnclosingElement(elementStack);
+        relationships.push({
+          type: "verify",
+          requirement: verifyTarget,
+          ...(enclosing ? { by: enclosing.name } : {}),
+        });
+        continue;
+      }
+
+      // --- Bare enumeration literal (child of an EnumerationDefinition) ---
+      // e.g. `LiIon;` inside `enum def Chem { ... }`. Recovered as an
+      // EnumerationUsage child of the enclosing enum def.
+      const enclosingParent = elementStack[elementStack.length - 1];
+      if (enclosingParent && enclosingParent.type === "EnumerationDefinition") {
+        const literalName = matchEnumLiteral(lineForParsing);
+        if (literalName !== null) {
+          currentList.push({
+            type: "EnumerationUsage",
+            name: literalName,
+            children: [],
+            attributes: {},
+          });
+          continue;
+        }
+      }
+
       // --- Known skippable lines ---
       if (isSkippableLine(lineForParsing)) {
         continue;
@@ -551,13 +635,33 @@ export function parseSysml(text: string): ParseResult {
 // preserving the brace characters as their own tokens.
 // e.g. "part def Engine {" → ["part def Engine ", "{", ""]
 //      "part a; part b }" → ["part a; part b ", "}"]
+//
+// Braces inside single-quoted names (which the serializer emits for names that
+// are not valid identifiers, e.g. `part def 'Has{Brace}';`) MUST NOT be treated
+// as nesting delimiters — otherwise brace-depth tracking is corrupted and the
+// element identity/nesting is lost. We track quote state and ignore `{`/`}`
+// while inside a quoted name. A backslash escapes the next character so an
+// escaped quote (`\'`) does not toggle the quote state.
 // ---------------------------------------------------------------------------
 
 function splitOnBraces(line: string): string[] {
   const result: string[] = [];
   let current = "";
-  for (const ch of line) {
-    if (ch === "{" || ch === "}") {
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    // Copy an escaped pair (`\x`) verbatim so it never toggles quote state.
+    if (ch === "\\" && i + 1 < line.length) {
+      current += ch + line[i + 1];
+      i++;
+      continue;
+    }
+    if (ch === "'") {
+      inQuote = !inQuote;
+      current += ch;
+      continue;
+    }
+    if (!inQuote && (ch === "{" || ch === "}")) {
       result.push(current);
       result.push(ch);
       current = "";
