@@ -1,11 +1,11 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ModelStore } from "../store.js";
+import type { ModelStore } from "@sysml-bridge/model";
 
 export function registerQueryRelationships(server: McpServer, smaps: ModelStore) {
   server.tool(
     "query_relationships",
-    "Get relationships for an element. Uses the SMAPS relationships endpoint with direction filtering.",
+    "Get relationships for an element, with direction filtering.",
     {
       element_id: z.string().optional().describe("Element to query relationships for"),
       direction: z

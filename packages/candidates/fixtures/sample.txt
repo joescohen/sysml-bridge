@@ -1,0 +1,7 @@
+ANGARS Sample Narrative Report
+
+This is a plain-text fixture used to exercise the TXT parser's paragraph-fallback section mapping. It contains no markdown headings and no form-feed page breaks.
+
+The refueling boom shall extend within three seconds of contact request. Operators shall receive an audible alert if the coupling sequence fails to complete within the allotted window.
+
+Historical data indicates that manual refueling operations average eleven minutes per sortie, while the autonomous system targets under four minutes end to end.

@@ -2,46 +2,35 @@
   "name": "sysml-bridge",
   "version": "0.1.0",
   "private": true,
-  "description": "Claude Code skill suite + MCP server for bidirectional natural-language to SysML v2 MBSE workflows",
+  "description": "Corpus-grounded SysML v2 authoring with Claude \u2014 every element cited, every gate enforced",
   "author": "Joe Cohen",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/joescohen/sysml-bridge.git"
-  },
-  "homepage": "https://github.com/joescohen/sysml-bridge",
-  "keywords": [
-    "sysml",
-    "sysml-v2",
-    "mbse",
-    "mcp",
-    "mcp-server",
-    "claude-code",
-    "systems-engineering",
-    "model-based-systems-engineering",
-    "cameo"
-  ],
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm --filter mcp-server dev",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
+    "check:skills": "tsx scripts/check-skills.ts",
+    "check:parity": "tsx scripts/check-parity-pairs.ts && tsx scripts/check-state-endpoints.ts",
     "validate:sysml": "tools/sysml-validator/run.sh",
-    "stress:sysml": "pnpm tsx scripts/synthetic-stress.ts",
-    "render:views": "tools/decisym-viewer/render.sh",
-    "extract:angars": "pnpm tsx scripts/extract-angars.ts",
-    "check:skills": "pnpm tsx scripts/check-skill-paths.ts"
+    "demo:extract": "tsx examples/angars/pipeline/extract.ts",
+    "demo:build": "tsx examples/angars/pipeline/build-model.ts",
+    "demo": "tsx examples/angars/pipeline/demo.ts",
+    "demo:assert": "tsx examples/angars/pipeline/assert-demo.ts",
+    "demo:seeded": "tsx examples/angars/pipeline/seeded-defects.ts",
+    "demo:gallery": "tsx examples/angars/pipeline/update-gallery.ts",
+    "smoke:mcp": "pnpm --filter @sysml-bridge/mcp-server build && tsx scripts/smoke-mcp.ts",
+    "review": "tsx packages/review-ui/src/server.ts --candidates examples/angars/candidates --dispositions examples/angars/out/dispositions",
+    "ingest:prose": "tsx scripts/ingest-prose.ts",
+    "weave": "tsx --env-file-if-exists=.env scripts/weave.ts",
+    "weave:eval": "tsx --env-file-if-exists=.env scripts/weave-eval.ts"
+  },
+  "devDependencies": {
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz",
+    "tsx": "^4.0.0",
+    "@modelcontextprotocol/sdk": "^1.0.0"
   },
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "pnpm@9.15.0",
-  "devDependencies": {
-    "@sysml-bridge/ir": "workspace:*",
-    "tsx": "^4.0.0",
-    "xlsx": "file:vendor/xlsx-0.20.3.tgz"
-  }
+  "packageManager": "pnpm@9.15.0"
 }

@@ -6,9 +6,8 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
-import { FileStore } from "../file-store.js";
+import { FileStore, SYSML_RELATIONSHIP_TYPES } from "@sysml-bridge/model";
 import { registerCreateRelationship } from "../tools/create-relationship.js";
-import { SYSML_RELATIONSHIP_TYPES } from "../types/sysml-elements.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

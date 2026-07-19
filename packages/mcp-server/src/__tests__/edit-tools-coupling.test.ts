@@ -28,13 +28,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
-import { FileStore } from "../file-store.js";
+import { FileStore } from "@sysml-bridge/model";
 import { registerCreateElement } from "../tools/create-element.js";
 import { registerCreateRelationship } from "../tools/create-relationship.js";
 import { registerUpdateElement } from "../tools/update-element.js";
 import { registerDeleteElement } from "../tools/delete-element.js";
-import { clearCorpusCache } from "../audit/corpus.js";
-import type { Finding } from "../audit/findings.js";
+import { clearCorpusCache } from "@sysml-bridge/gates";
+import type { Finding } from "@sysml-bridge/gates";
+import { hasFinding } from "@sysml-bridge/invariants";
 
 // ---------------------------------------------------------------------------
 // MINIMAL_CORPUS fixture — matches write-path-coupling.test.ts verbatim
@@ -167,7 +168,7 @@ describe("MCP edit-tools coupling", () => {
     expect(result.isError).toBe(true);
     const parsed = parseText(result) as { rejected: boolean; findings: Finding[] };
     expect(parsed.rejected).toBe(true);
-    expect(parsed.findings.some((f) => f.ruleId === "R4-def-operand")).toBe(true);
+    expect(hasFinding(parsed.findings, { ruleId: "R4-def-operand" })).toBe(true);
 
     // Store must be unchanged
     const afterElements = await store.queryElements();
@@ -202,7 +203,7 @@ describe("MCP edit-tools coupling", () => {
     expect(result.isError).toBe(true);
     const parsed = parseText(result) as { rejected: boolean; findings: Finding[] };
     expect(parsed.rejected).toBe(true);
-    expect(parsed.findings.some((f) => f.ruleId === "GATE02-dangling-endpoint")).toBe(true);
+    expect(hasFinding(parsed.findings, { ruleId: "GATE02-dangling-endpoint" })).toBe(true);
 
     // Relationship target must still be the original
     const rels = await store.queryRelationships();
@@ -238,7 +239,7 @@ describe("MCP edit-tools coupling", () => {
     // Response shape B2: findings included (full set, including bypassed errors)
     expect(parsed.element).toBeDefined();
     expect(Array.isArray(parsed.findings)).toBe(true);
-    expect(parsed.findings.some((f) => f.ruleId === "R4-def-operand")).toBe(true);
+    expect(hasFinding(parsed.findings, { ruleId: "R4-def-operand" })).toBe(true);
 
     // Store reflects the (intentionally invalid) retarget
     const rels = await store.queryRelationships();
@@ -270,7 +271,7 @@ describe("MCP edit-tools coupling", () => {
     expect(result.isError).toBe(true);
     const parsed = parseText(result) as { rejected: boolean; findings: Finding[] };
     expect(parsed.rejected).toBe(true);
-    expect(parsed.findings.some((f) => f.ruleId === "GATE03-unresolvable-provenance")).toBe(true);
+    expect(hasFinding(parsed.findings, { ruleId: "GATE03-unresolvable-provenance" })).toBe(true);
 
     // Store unchanged
     const afterElements = await store.queryElements();
@@ -320,7 +321,7 @@ describe("MCP edit-tools coupling", () => {
     expect(result.isError).toBe(true);
     const parsed = parseText(result) as { rejected: boolean; findings: Finding[] };
     expect(parsed.rejected).toBe(true);
-    expect(parsed.findings.some((f) => f.ruleId === "EDIT-delete-would-dangle")).toBe(true);
+    expect(hasFinding(parsed.findings, { ruleId: "EDIT-delete-would-dangle" })).toBe(true);
 
     // Store unchanged
     const afterElements = await store.queryElements();
@@ -354,7 +355,7 @@ describe("MCP edit-tools coupling", () => {
     expect(parsed.elementId).toBe(src.id);
     // Findings included for auditability
     expect(Array.isArray(parsed.findings)).toBe(true);
-    expect(parsed.findings.some((f) => f.ruleId === "EDIT-delete-would-dangle")).toBe(true);
+    expect(hasFinding(parsed.findings, { ruleId: "EDIT-delete-would-dangle" })).toBe(true);
 
     // src is gone from elements
     const elements = await store.queryElements();
@@ -441,7 +442,7 @@ describe("MCP edit-tools coupling", () => {
     expect(result.isError).toBe(true);
     const parsed = parseText(result) as { rejected: boolean; findings: Array<{ ruleId: string }> };
     expect(parsed.rejected).toBe(true);
-    expect(parsed.findings.some((f) => f.ruleId === "EDIT-empty-endpoints")).toBe(true);
+    expect(hasFinding(parsed.findings, { ruleId: "EDIT-empty-endpoints" })).toBe(true);
 
     // Store unchanged — relationship still has its original endpoints
     const afterRels = await store.queryRelationships();
@@ -470,6 +471,6 @@ describe("MCP edit-tools coupling", () => {
     expect(result.isError).toBe(true);
     const parsed = parseText(result) as { rejected: boolean; findings: Array<{ ruleId: string }> };
     expect(parsed.rejected).toBe(true);
-    expect(parsed.findings.some((f) => f.ruleId === "EDIT-delete-would-dangle")).toBe(true);
+    expect(hasFinding(parsed.findings, { ruleId: "EDIT-delete-would-dangle" })).toBe(true);
   });
 });

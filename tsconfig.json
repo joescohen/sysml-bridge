@@ -1,15 +1,11 @@
 {
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "Node16",
-    "moduleResolution": "Node16",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true
+    "baseUrl": ".",
+    "paths": {
+      "@sysml-bridge/model": ["packages/model/src/index.ts"],
+      "@sysml-bridge/sysml": ["packages/sysml/src/index.ts"],
+      "@sysml-bridge/gates": ["packages/gates/src/index.ts"]
+    }
   }
 }

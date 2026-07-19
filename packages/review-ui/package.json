@@ -1,0 +1,36 @@
+{
+  "name": "@sysml-bridge/review-ui",
+  "version": "0.1.0",
+  "description": "Candidate review UI — the human approval gate as a local web page",
+  "author": "Joe Cohen",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joescohen/sysml-bridge.git",
+    "directory": "packages/review-ui"
+  },
+  "type": "module",
+  "main": "dist/server.js",
+  "exports": {
+    ".": "./dist/server.js"
+  },
+  "bin": {
+    "review-ui": "dist/server.js"
+  },
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sysml-bridge/model": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

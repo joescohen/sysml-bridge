@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ModelStore } from "../store.js";
-import type { Finding } from "../audit/findings.js";
+import type { ModelStore } from "@sysml-bridge/model";
+import type { Finding } from "@sysml-bridge/gates";
 
 export function registerDeleteElement(server: McpServer, smaps: ModelStore) {
   server.tool(

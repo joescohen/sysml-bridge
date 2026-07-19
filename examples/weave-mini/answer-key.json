@@ -1,0 +1,111 @@
+{
+  "schema": "sysml-foundry/weave-mini-answer-key@1",
+  "description": "Proof-of-recall answer key for examples/weave-mini/ (corpus-weaver design spec §6, Phase W4). Ids below are PINNED — computed once via `tsx fixtures/wm-compute-answer-key.ts` from packages/candidates/ against the committed corpus + fixture-responses.ts, and asserted exactly (not by count) in packages/candidates/src/prose/__tests__/weave-mini-eval.test.ts.",
+  "corpus": [
+    { "file": "system-overview.md", "documentId": "weave-mini-overview", "sectionPath": "Cargo Handling", "chunkId": "e7bb67061ae5fbe06de53471cae0ff78" },
+    { "file": "subsystem-spec.docx", "documentId": "weave-mini-subsystem", "sectionPath": "Cargo Handling/Safety", "chunkId": "490c9f768275e014354012c9012717c2" },
+    { "file": "requirements-matrix.xlsx", "documentId": "weave-mini-matrix", "sectionPath": "Cargo Handling/Requirements", "chunkId": "124b2fd435f6ed5c75042ed3e05e79c9" }
+  ],
+  "entities": {
+    "description": "K=4 answer-key entity groups with cross-document evidence. Each entityId is stableId-minted by entityIdFor(kind, seedSurfaceForm) — order-independent (a pure function of kind + normalized surface form), so it is the same regardless of which document's mention happens to auto-cluster first.",
+    "crossDocumentExactAlias": [
+      {
+        "note": "Identical spelling in two documents -> auto-clusters into ONE entity (no merge proposal needed).",
+        "entityId": "entity-d4196a07ebb75d55",
+        "kind": "component",
+        "canonicalName": "Cargo Handling Controller",
+        "mentionDocIds": ["weave-mini-overview", "weave-mini-matrix"]
+      },
+      {
+        "entityId": "entity-4761bdf7260ef65f",
+        "kind": "component",
+        "canonicalName": "Position Sensor Array",
+        "mentionDocIds": ["weave-mini-overview", "weave-mini-subsystem"]
+      },
+      {
+        "entityId": "entity-c0cba29ae877092f",
+        "kind": "component",
+        "canonicalName": "Fault Logger",
+        "mentionDocIds": ["weave-mini-subsystem", "weave-mini-matrix"]
+      }
+    ],
+    "acronymPair": {
+      "note": "Different spelling in two documents -> does NOT auto-cluster (normSurface differs); MUST be proposed for merge by the band-2 acronym suggester (suggestMerges). This is the required >=1 acronym pair.",
+      "full": {
+        "entityId": "entity-d4196a07ebb75d55",
+        "kind": "component",
+        "canonicalName": "Cargo Handling Controller",
+        "mentionDocIds": ["weave-mini-overview", "weave-mini-matrix"]
+      },
+      "acronym": {
+        "entityId": "entity-78fee0e1101d46c4",
+        "kind": "component",
+        "canonicalName": "CHC",
+        "mentionDocIds": ["weave-mini-subsystem"]
+      },
+      "expectedMergeProposalId": "entity-merge-5b7e16c3fd1af833",
+      "expectedMergeReason": "acronym"
+    }
+  },
+  "trap": {
+    "description": "Two DISTINCT entities sharing the exact surface form 'Interlock', one a mode (system-overview.md) and one a component (subsystem-spec.docx). MUST NOT auto-cluster (different kindHint) and MUST NOT be proposed for merge (suggestMerges requires kind-compatible endpoints).",
+    "surfaceForm": "Interlock",
+    "entityA": { "entityId": "entity-d3825c77d70ec9a2", "kind": "mode", "mentionDocIds": ["weave-mini-overview"] },
+    "entityB": { "entityId": "entity-23a7d494a0f7e515", "kind": "component", "mentionDocIds": ["weave-mini-subsystem"] }
+  },
+  "crossDocumentLinks": {
+    "description": "L=3 links whose ONLY co-occurrence signal is a cross-document sectionPath prefix (cooccurKind==='section') — i.e. no single document states either endpoint's relation to the other (neither shares a chunk, since chunk ids are document-local). enumerateCooccurrence families: allocation, modeMembership.",
+    "links": [
+      {
+        "id": "cooccur-d5fd9c8798e2c5df",
+        "family": "allocation",
+        "sourceId": "entity-08ec4f4cc7d32731",
+        "sourceName": "Monitor Conveyor Speed",
+        "sourceDoc": "weave-mini-overview",
+        "targetId": "entity-ae1c48a2b87c1ff5",
+        "targetName": "Diagnostic Interface",
+        "targetDoc": "weave-mini-matrix",
+        "expectedCooccurKind": "section"
+      },
+      {
+        "id": "cooccur-def094312c5487d1",
+        "family": "allocation",
+        "sourceId": "entity-40ac5107b4d6ec8f",
+        "sourceName": "Detect Cargo Presence",
+        "sourceDoc": "weave-mini-overview",
+        "targetId": "entity-23a7d494a0f7e515",
+        "targetName": "Interlock",
+        "targetDoc": "weave-mini-subsystem",
+        "expectedCooccurKind": "section"
+      },
+      {
+        "id": "cooccur-e315bb854b46c119",
+        "family": "modeMembership",
+        "sourceId": "entity-9ade89edcd2d432f",
+        "sourceName": "Compute Load Distribution",
+        "sourceDoc": "weave-mini-overview",
+        "targetId": "entity-a669add53e3253a6",
+        "targetName": "Standby",
+        "targetDoc": "weave-mini-subsystem",
+        "expectedCooccurKind": "section"
+      }
+    ]
+  },
+  "chain": {
+    "description": "One valid 2-hop chain, composed from two hand-authored ALREADY-ACCEPTED relations (corpus-backed) via COMPOSITION_TABLE's allocation ∘ containment -> allocation row.",
+    "id": "chain-d970e91adc959893",
+    "leftFamily": "allocation",
+    "rightFamily": "containment",
+    "sourceId": "entity-40ac5107b4d6ec8f",
+    "sourceName": "Detect Cargo Presence",
+    "middleId": "entity-4761bdf7260ef65f",
+    "middleName": "Position Sensor Array",
+    "targetId": "entity-d4196a07ebb75d55",
+    "targetName": "Cargo Handling Controller",
+    "resultFamily": "allocation",
+    "acceptedRelations": [
+      { "id": "wm-accepted-r1", "family": "allocation", "sourceId": "entity-40ac5107b4d6ec8f", "targetId": "entity-4761bdf7260ef65f", "status": "accepted" },
+      { "id": "wm-accepted-r2", "family": "containment", "sourceId": "entity-4761bdf7260ef65f", "targetId": "entity-d4196a07ebb75d55", "status": "accepted" }
+    ]
+  }
+}

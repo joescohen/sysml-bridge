@@ -1,13 +1,11 @@
 {
   "name": "@sysml-bridge/skills",
   "version": "0.1.0",
-  "description": "Claude Code skills for MBSE workflows with SysML v2",
-  "author": "Joe Cohen",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/joescohen/sysml-bridge.git",
-    "directory": "packages/skills"
-  },
-  "skills": "skills/"
+  "private": true,
+  "description": "/mbse orchestrator + verb skills (markdown contracts over the MCP tool surface)",
+  "scripts": {
+    "build": "echo skills: nothing to build",
+    "test": "echo skills: no tests",
+    "lint": "echo skills: markdown only"
+  }
 }

@@ -15,20 +15,16 @@
  *   C14 — the n2-precedent narrowness: only approved prose ids are added, not candidate ids
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { promises as fs } from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
+import { describe, it, expect } from "vitest";
 
 import {
   buildResolutionSet,
   buildResolutionSetFromComposed,
-  clearCorpusCache,
-} from "../audit/corpus.js";
-import { provenanceFindings } from "../audit/provenance.js";
-import { audit } from "../audit/index.js";
-import type { Extracted, ProseComposedIR } from "@sysml-bridge/ir";
-import type { SysmlElement } from "../types/sysml-elements.js";
+  provenanceFindings,
+  audit,
+  structuralCheck,
+} from "@sysml-bridge/gates";
+import type { Extracted, ProseComposedIR, SysmlElement } from "@sysml-bridge/model";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -293,8 +289,7 @@ describe("audit() — C9 PROSE-suspect-source warning", () => {
 // ---------------------------------------------------------------------------
 
 describe("structural gate — C8 write-path with prose ids", () => {
-  it("structuralCheck with prose-extended resolutionSet: approved prose id passes", async () => {
-    const { structuralCheck } = await import("../audit/structural.js");
+  it("structuralCheck with prose-extended resolutionSet: approved prose id passes", () => {
     const approvedId = "prose-approved-gate-001";
     const composed = makeComposedIR([approvedId]);
     const resolutionSet = buildResolutionSetFromComposed(composed);
@@ -314,8 +309,7 @@ describe("structural gate — C8 write-path with prose ids", () => {
     expect(errors).toHaveLength(0);
   });
 
-  it("structuralCheck: candidate prose id (not approved) → GATE03 error, store unchanged signal", async () => {
-    const { structuralCheck } = await import("../audit/structural.js");
+  it("structuralCheck: candidate prose id (not approved) → GATE03 error, store unchanged signal", () => {
     const candidateId = "candidate-prose-not-approved";
     const resolutionSet = buildResolutionSet(MINIMAL_EXTRACTED);
 

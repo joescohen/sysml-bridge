@@ -1,10 +1,10 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ModelStore } from "../store.js";
-import { structuralCheck, resolveGateCorpus } from "../audit/structural.js";
-import type { Finding } from "../audit/findings.js";
-import { TRACE_TYPES } from "../audit/relational.js";
-import { SYSML_RELATIONSHIP_TYPES } from "../types/sysml-elements.js";
+import type { ModelStore } from "@sysml-bridge/model";
+import { structuralCheck, resolveGateCorpus } from "@sysml-bridge/gates";
+import type { Finding } from "@sysml-bridge/gates";
+import { TRACE_TYPES } from "@sysml-bridge/gates";
+import { SYSML_RELATIONSHIP_TYPES } from "@sysml-bridge/model";
 
 export function registerUpdateElement(server: McpServer, smaps: ModelStore) {
   server.tool(

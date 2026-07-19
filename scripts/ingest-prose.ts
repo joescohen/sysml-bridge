@@ -1,234 +1,181 @@
-#!/usr/bin/env tsx
 /**
- * ingest-prose.ts — CLI driver for the G-C prose ingestion pipeline.
+ * ingest-prose.ts
  *
- * Processes the 4 ANGARS corpus PDFs, emits prose-candidates.json for
- * human review.
+ * I/O entry point for the prose-ingest layer (packages/candidates/src/prose/
+ * is a PURE pipeline — see ingest-pipeline.ts's header comment, which names
+ * this file as where the I/O lives).
+ *
+ * Parses one or more corpus files — PDF, DOCX, XLSX, CSV, MD, or TXT — via
+ * the format dispatcher (parseDocument), so this script (and any other
+ * caller) never hand-picks a parser by extension itself. For each file it
+ * prints: format, extracted text length, page/segment count, document
+ * SHA-256 (the hash chunk IDs are content-addressed against), and the
+ * section map derived from the parser's heading output.
+ *
+ * This is a summary/inspection tool, not the full candidate-generation
+ * pipeline — running the LLM pass (ingest-pipeline.ts#runIngestPipeline)
+ * needs a provider (ANTHROPIC_API_KEY) and a chunk-store wiring that's
+ * exercised end-to-end in packages/candidates/src/prose/__tests__/
+ * gc-real-run.test.ts. This script proves the dispatch/parse/section-map
+ * leg of that pipeline against real files on disk.
+ *
+ * CHUNK-STORE PERSISTENCE (`--out <dir>`): when an output dir is given, each
+ * file is deterministically chunked (chunkWithIds — no provider/LLM needed;
+ * chunk text and ids are provider-independent) and the union of chunks across
+ * all files is written to `<dir>/chunks.json` as { chunkId, sectionPath, text }
+ * records. That file is the SINGLE persisted chunk store: it feeds the
+ * PROSE-unverbatim-quote audit (as a chunkId→text map — run at ERROR level
+ * instead of the degrade-warning path) AND runInferenceEngine's `chunkStore`
+ * option (BM25 evidence). See packages/candidates/src/chunk-store/.
  *
  * Usage:
- *   pnpm tsx scripts/ingest-prose.ts [--out <path>] [--dry-run]
- *
- * Options:
- *   --out <path>   Output path for prose-candidates.json
- *                  Default: examples/angars/model/prose-candidates.json
- *   --dry-run      Parse and chunk only; skip LLM calls (KEY-REQUIRED guard)
- *   --help         Show this message
- *
- * C4: Proposals with unresolvable chunkIds are DROPPED (logged to stderr).
- * C5: Every chunk is submitted to the LLM exactly once; no retrieval/embedding.
+ *   tsx scripts/ingest-prose.ts <file> [<file> ...] [--out <dir>]
+ *   pnpm ingest:prose -- <file> [<file> ...] [--out <dir>]
  */
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { join, dirname } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { parsePdf } from "../packages/prose-ingest/src/parsers/pdf.js";
-import { runIngestPipeline } from "../packages/prose-ingest/src/ingest-pipeline.js";
-import type { ProseCandidateRecord } from "../packages/prose-ingest/src/ingest-pipeline.js";
-import { AnthropicLlmProvider } from "../packages/prose-ingest/src/llm-provider.js";
-import type { LlmProvider } from "../packages/prose-ingest/src/llm-provider.js";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+import {
+  parseDocument,
+  detectFormat,
+  extractSectionMapFromPages,
+  extractSectionMap,
+  chunkWithIds,
+  type SectionMap,
+} from "../packages/candidates/src/prose/index.js";
+import {
+  writeChunkStoreFile,
+  type ChunkStoreRecord,
+} from "../packages/candidates/src/chunk-store/index.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const REPO_ROOT = join(__dirname, "..");
+/** Section path used for the persisted chunk store, mirroring how the ingest
+ *  pipeline is driven per document (one ChunkContext, root section) in
+ *  gc-real-run.test.ts. Chunk ids are content-addressed against this path. */
+const ROOT_SECTION_PATH = "root";
 
-const CORPUS_DIR = join(REPO_ROOT, "examples/angars/corpus/specs");
-const DEFAULT_OUT = join(REPO_ROOT, "examples/angars/model/prose-candidates.json");
+interface FileSummary {
+  file: string;
+  format: string;
+  parser: unknown;
+  textLength: number;
+  pageCount: number;
+  docSha256: string;
+  sectionCount: number;
+  topLevelSections: string[];
+}
 
-/**
- * Zero-dependency .env loader. Reads repo-root `.env` (gitignored) and sets any
- * KEY=VALUE into process.env WITHOUT overriding values already exported in the
- * shell. Lets ANTHROPIC_API_KEY live in .env so the pipeline "just works"
- * without an export dance — no dotenv dependency.
- */
-function loadDotEnv(): void {
-  const envPath = join(REPO_ROOT, ".env");
-  if (!existsSync(envPath)) return;
-  for (const raw of readFileSync(envPath, "utf8").split("\n")) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const eq = line.indexOf("=");
-    if (eq === -1) continue;
-    const key = line.slice(0, eq).trim();
-    if (!key || process.env[key] !== undefined) continue; // shell export wins
-    let value = line.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
+function countSections(map: SectionMap): number {
+  let count = 0;
+  const walk = (nodes: SectionMap["sections"]) => {
+    for (const node of nodes) {
+      count++;
+      walk(node.children);
     }
-    process.env[key] = value;
-  }
+  };
+  walk(map.sections);
+  return count;
 }
 
-const DOCS: Array<{ file: string; docId: string }> = [
-  { file: "Appendix_B_ANGARS_RAR_CONOPS.pdf", docId: "angars-conops" },
-  { file: "Appendix_C_ANGARS_FAR.pdf", docId: "angars-far" },
-  { file: "Appendix_E_ANGARS_ConceptDesign.pdf", docId: "angars-concept-design" },
-  { file: "Appendix_G_ANGARS_ASPEC.pdf", docId: "angars-aspec" },
-];
+/** Parse + summarize one file, and deterministically chunk it for persistence. */
+async function summarizeFile(
+  filePath: string,
+): Promise<{ summary: FileSummary; chunks: ChunkStoreRecord[] }> {
+  const format = detectFormat(filePath); // fail fast, before any I/O, on an unsupported extension
+  const raw = await readFile(filePath);
+  const docSha256 = createHash("sha256").update(raw).digest("hex");
+  const parsed = await parseDocument(filePath);
 
-// ── No-op provider for dry-run ────────────────────────────────────────────────
+  const documentId = `${format}:${docSha256.slice(0, 12)}`;
+  const sectionMap =
+    format === "pdf"
+      ? extractSectionMapFromPages(parsed.pages, documentId)
+      : extractSectionMap(
+          (parsed.metadata["headings"] as Array<{ title: string; level: number; pageIndex: number }>) ??
+            [],
+          documentId,
+          format,
+          parsed.pages.length,
+        );
 
-class NoOpProvider implements LlmProvider {
-  async propose(): Promise<[]> {
-    return [];
-  }
+  // Deterministic chunking (no provider/LLM). One ChunkContext per document,
+  // root section — the same shape runIngestPipeline is driven with, so ids match.
+  const chunks = await chunkWithIds(parsed.text, {
+    documentHash: docSha256,
+    sectionId: "sec-root",
+    sectionPath: ROOT_SECTION_PATH,
+    pageStart: 0,
+    pageEnd: Math.max(0, parsed.pages.length - 1),
+    documentId,
+  });
+  const records: ChunkStoreRecord[] = chunks.map((c) => ({
+    chunkId: c.chunkId,
+    sectionPath: ROOT_SECTION_PATH,
+    text: c.text,
+  }));
+
+  return {
+    summary: {
+      file: filePath,
+      format,
+      parser: parsed.metadata["parser"],
+      textLength: parsed.text.length,
+      pageCount: parsed.pages.length,
+      docSha256,
+      sectionCount: countSections(sectionMap),
+      topLevelSections: sectionMap.sections.map((s) => s.title),
+    },
+    chunks: records,
+  };
 }
 
-// ── CLI arg parsing ───────────────────────────────────────────────────────────
-
-function parseArgs(argv: string[]): { outPath: string; dryRun: boolean } {
-  let outPath = DEFAULT_OUT;
-  let dryRun = false;
-
+/** Extract a `--out <dir>` option, returning the dir (or undefined) + remaining args. */
+function parseArgs(argv: string[]): { outDir?: string; files: string[] } {
+  const files: string[] = [];
+  let outDir: string | undefined;
   for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    if (arg === "--out" && argv[i + 1]) {
-      outPath = argv[++i]!;
-    } else if (arg === "--dry-run") {
-      dryRun = true;
-    } else if (arg === "--help") {
-      console.log(`Usage: pnpm tsx scripts/ingest-prose.ts [--out <path>] [--dry-run]`);
-      process.exit(0);
+    if (argv[i] === "--out") {
+      outDir = argv[++i];
+      if (outDir === undefined) throw new Error("--out requires a directory argument");
+    } else if (argv[i]!.startsWith("--out=")) {
+      outDir = argv[i]!.slice("--out=".length);
+    } else {
+      files.push(argv[i]!);
     }
   }
-
-  return { outPath, dryRun };
+  return { outDir, files };
 }
-
-// ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  loadDotEnv(); // load ANTHROPIC_API_KEY from .env before the key check below
-  const { outPath, dryRun } = parseArgs(process.argv.slice(2));
+  const { outDir, files } = parseArgs(process.argv.slice(2));
+  if (files.length === 0) {
+    console.error("Usage: tsx scripts/ingest-prose.ts <file> [<file> ...] [--out <dir>]");
+    process.exitCode = 1;
+    return;
+  }
 
-  // Verify corpus is present
-  for (const { file } of DOCS) {
-    if (!existsSync(join(CORPUS_DIR, file))) {
-      console.error(`ERROR: corpus file not found: ${join(CORPUS_DIR, file)}`);
-      console.error(`Corpus must be present at: ${CORPUS_DIR}`);
-      process.exit(1);
+  let hadError = false;
+  const allChunks: ChunkStoreRecord[] = [];
+  for (const file of files) {
+    try {
+      const { summary, chunks } = await summarizeFile(file);
+      console.log(JSON.stringify(summary, null, 2));
+      allChunks.push(...chunks);
+    } catch (err) {
+      hadError = true;
+      console.error(`FAILED: ${file}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  // Resolve LLM provider
-  const hasKey = Boolean(process.env["ANTHROPIC_API_KEY"]);
-  const ingestModel = process.env["PROSE_INGEST_MODEL"] ?? "claude-haiku-4-5-20251001";
-  let provider: LlmProvider;
-
-  if (dryRun) {
-    console.log("[KEY-REQUIRED] --dry-run: LLM pass skipped (no proposals generated)");
-    provider = new NoOpProvider();
-  } else if (!hasKey) {
-    console.log(
-      "[KEY-REQUIRED] ANTHROPIC_API_KEY not set — running deterministic-only (no LLM proposals)",
-    );
-    provider = new NoOpProvider();
-  } else {
-    console.log(`[LLM] ANTHROPIC_API_KEY present — using AnthropicLlmProvider (${ingestModel})`);
-    provider = new AnthropicLlmProvider();
+  // Persist the chunk store (chunkId → sectionPath + text) for the audit + BM25.
+  if (outDir !== undefined) {
+    const outPath = join(outDir, "chunks.json");
+    await writeChunkStoreFile(outPath, allChunks);
+    console.log(`\nWrote ${allChunks.length} chunk(s) to ${outPath}`);
   }
 
-  const allCandidates: ProseCandidateRecord[] = [];
-  let totalDropped = 0;
-  let totalMalformed = 0;
-  let totalChunks = 0;
-  let totalProcessed = 0;
-
-  for (const { file, docId } of DOCS) {
-    const filePath = join(CORPUS_DIR, file);
-    console.log(`\n[INGEST] ${file} (${docId})`);
-
-    const rawBytes = await readFile(filePath);
-    const docSha256 = createHash("sha256").update(rawBytes).digest("hex");
-    console.log(`  docSha256: ${docSha256.slice(0, 16)}…`);
-
-    const parsed = await parsePdf(filePath);
-    console.log(`  pages: ${parsed.pages.length}, chars: ${parsed.text.length}`);
-
-    const result = await runIngestPipeline({
-      text: parsed.text,
-      context: {
-        documentHash: docSha256,
-        sectionId: "sec-root",
-        sectionPath: "root",
-        pageStart: 0,
-        pageEnd: parsed.pages.length - 1,
-        documentId: docId,
-      },
-      provider,
-      chunkOptions: { chunkSize: 1500, chunkOverlap: 150 },
-    });
-
-    console.log(`  chunks: ${result.totalChunks}, processed: ${result.processedChunks}`);
-    console.log(`  candidates emitted: ${result.candidates.length}`);
-    console.log(`  dropped (uncited): ${result.droppedUncited}`);
-    console.log(`  dropped (malformed — missing kind-specific fields): ${result.droppedMalformed}`);
-    console.log(`  emittedUncited (must=0): ${result.emittedUncited}`);
-
-    // C4 assertion — fail fast if gate is broken
-    if (result.emittedUncited !== 0) {
-      console.error(`FATAL: C4 gate violated — emittedUncited=${result.emittedUncited} for ${file}`);
-      process.exit(2);
-    }
-    // C5 assertion
-    if (result.processedChunks !== result.totalChunks) {
-      console.error(
-        `FATAL: C5 gate violated — processedChunks(${result.processedChunks}) !== totalChunks(${result.totalChunks}) for ${file}`,
-      );
-      process.exit(2);
-    }
-
-    allCandidates.push(...result.candidates);
-    totalDropped += result.droppedUncited;
-    totalMalformed += result.droppedMalformed;
-    totalChunks += result.totalChunks;
-    totalProcessed += result.processedChunks;
-  }
-
-  // Per-kind candidate breakdown (control-flow kinds surfaced explicitly)
-  const byKind: Record<string, number> = {};
-  for (const c of allCandidates) {
-    byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
-  }
-
-  // Summary
-  console.log(`\n[SUMMARY]`);
-  console.log(`  Total candidates: ${allCandidates.length}`);
-  console.log(`  Total chunks processed: ${totalProcessed} / ${totalChunks}`);
-  console.log(`  Total dropped (uncited): ${totalDropped}`);
-  console.log(`  Total dropped (malformed): ${totalMalformed}`);
-  console.log(`  Per-kind candidate counts:`);
-  for (const kind of [
-    "requirement", "need", "mode", "modeTransition",
-    "interface", "component", "function",
-    "succession", "decision", "parallel",
-  ]) {
-    console.log(`    ${kind.padEnd(16)}: ${byKind[kind] ?? 0}`);
-  }
-
-  // Write output
-  await mkdir(dirname(outPath), { recursive: true });
-  const output = {
-    generatedAt: new Date().toISOString(),
-    totalCandidates: allCandidates.length,
-    totalChunks,
-    totalDropped,
-    totalMalformed,
-    byKind,
-    llmProviderUsed: hasKey && !dryRun ? `anthropic/${ingestModel}` : "none",
-    candidates: allCandidates,
-  };
-  await writeFile(outPath, JSON.stringify(output, null, 2), "utf8");
-  console.log(`\n[OUT] ${outPath}`);
+  if (hadError) process.exitCode = 1;
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main();

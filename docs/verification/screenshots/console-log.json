@@ -1,0 +1,17 @@
+{
+  "consoleMessages": [],
+  "pageErrors": [],
+  "findings": [
+    "page body mentions \"prose\": true, \"inference\": true",
+    ".item rows rendered: 452",
+    "prose detail pane text length: 537",
+    "prose detail mentions citation/source: true",
+    "inference layer-head found: true",
+    "inference item click dispatched: true",
+    "inference detail pane text length: 357"
+  ],
+  "hasProse": true,
+  "hasInference": true,
+  "title": "SysML Foundry — Candidate Review",
+  "itemCount": 452
+}

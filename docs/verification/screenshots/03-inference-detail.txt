@@ -1,0 +1,17 @@
+allocation: function-bbda07e83d018bfa → component-00459388289a4e7e
+inference · allocation · infer-0685932ec1f5fe4f
+source
+function-bbda07e83d018bfa
+target
+component-00459388289a4e7e
+confidence
+0.82
+PREMISES
+requirement-7227c0f5ceb810d8
+n2-2b2f3799a3d913fd
+n2-353a4602ddbba402
+RATIONALE
+(audit-only — redacted; never exported)
+Approve
+Reject
+current: pending
