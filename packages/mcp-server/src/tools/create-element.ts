@@ -1,13 +1,13 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ModelStore } from "../store.js";
-import { structuralCheck, resolveGateCorpus } from "../audit/structural.js";
-import type { Finding } from "../audit/findings.js";
+import type { ModelStore } from "@sysml-bridge/model";
+import { structuralCheck, resolveGateCorpus } from "@sysml-bridge/gates";
+import type { Finding } from "@sysml-bridge/gates";
 
 export function registerCreateElement(server: McpServer, smaps: ModelStore) {
   server.tool(
     "create_element",
-    "Create a SysML v2 element via a SMAPS commit. Supports all SysML v2 types: PartDefinition, RequirementDefinition, ActionDefinition, etc.",
+    "Create a SysML v2 element. Supports all SysML v2 types: PartDefinition, RequirementDefinition, ActionDefinition, etc.",
     {
       type: z
         .string()

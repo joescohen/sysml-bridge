@@ -36,7 +36,7 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
-import { FileStore } from "../file-store.js";
+import { FileStore } from "@sysml-bridge/model";
 import { registerValidateModel } from "../tools/validate-model.js";
 
 // ---------------------------------------------------------------------------

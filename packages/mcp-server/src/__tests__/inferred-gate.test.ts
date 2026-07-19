@@ -26,14 +26,13 @@
  */
 
 import { describe, it, expect } from "vitest";
-import {
-  buildResolutionSetFromInferred,
-} from "../audit/corpus.js";
-import { provenanceFindings } from "../audit/provenance.js";
-import { audit } from "../audit/index.js";
-import type { InferredComposedIR, InferredApprovedEntry } from "@sysml-bridge/ir";
-import type { SysmlElement } from "../types/sysml-elements.js";
-import type { Extracted } from "@sysml-bridge/ir";
+import { buildResolutionSetFromInferred, provenanceFindings, audit } from "@sysml-bridge/gates";
+import type {
+  InferredComposedIR,
+  InferredApprovedEntry,
+  SysmlElement,
+  Extracted,
+} from "@sysml-bridge/model";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -360,7 +359,6 @@ describe("T2c — Fidelity 4th bucket: inferred element count", () => {
   it("model element with inferred-layer provenanceSourceId is counted in inferred bucket", () => {
     const approvedId = "inferred-approved-fidelity-001";
     const composed = makeInferredComposedIR([approvedId]);
-    const resolutionSet = buildResolutionSetFromInferred(composed);
 
     const el = mkEl("el-001", "PartUsage", approvedId);
     const result = audit([el], [], composed);

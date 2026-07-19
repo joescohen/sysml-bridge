@@ -29,9 +29,9 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
-import { FileStore } from "../file-store.js";
+import { FileStore } from "@sysml-bridge/model";
 import { registerValidateModel } from "../tools/validate-model.js";
-import { clearCorpusCache } from "../audit/index.js";
+import { clearCorpusCache } from "@sysml-bridge/gates";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -237,6 +237,20 @@ describe("validate_model — findings surface through MCP tool (ROADMAP criterio
     const r4 = parsed.findings.filter((f) => f.ruleId === "R4-def-operand");
     expect(r4.length).toBeGreaterThan(0);
     expect(r4[0].severity).toBe("error");
+  });
+
+  it("relationship-classified elements are NOT flagged as duplicate ids (regression)", async () => {
+    // The store classifies source/target-bearing elements as relationships, so
+    // they appear in BOTH queryElements() and queryRelationships(). Passing the
+    // unfiltered element list to the audit made every relationship a spurious
+    // GATE02-id-duplicate. The seeded model has two relationship elements and
+    // zero genuine id duplicates — the payload must contain NO duplicate findings.
+    const result = await client.callTool({ name: "validate_model", arguments: {} });
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    const parsed = JSON.parse(text) as FindingsResult;
+
+    const dupes = parsed.findings.filter((f) => f.ruleId === "GATE02-id-duplicate");
+    expect(dupes).toEqual([]);
   });
 
   it("findings[] contains GATE02-dangling-endpoint", async () => {

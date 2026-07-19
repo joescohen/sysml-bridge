@@ -1,0 +1,4 @@
+ID,Statement,Priority
+REQ-001,The system shall detect coupling faults within 2 seconds.,High
+REQ-002,The system shall log all fault events with a UTC timestamp.,Medium
+REQ-003,The system shall abort refueling if wind speed exceeds 35 knots.,High

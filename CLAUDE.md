@@ -1,12 +1,11 @@
 # sysml-bridge — Project Instructions
 
-Claude Code skill suite + MCP server for bidirectional natural-language ↔ SysML v2 MBSE
-workflows, portable from open-source dev to Cameo Enterprise Architecture. See
-`docs/design.md` for the architecture and `.planning/RESUME.md` for current project state.
+Corpus-grounded SysML v2 authoring: skills + MCP server + validation gates, rendered by the
+vendored viewer and importable into Cameo Enterprise Architecture. See
+`docs/superpowers/specs/2026-07-02-sysml-foundry-rebuild-design.md` for the design.
 
 This file is the **project** instruction set, scoped to this repo's SysML v2 emission
-discipline. It does not duplicate the user's global `~/.claude/CLAUDE.md` conventions —
-those still apply.
+discipline.
 
 ---
 
@@ -19,7 +18,7 @@ grammar reference plus a local validator in the pipeline. Do not regress to gues
 
 ### R1 — The grammar is the SOURCE OF TRUTH
 
-`packages/mcp-server/src/utils/sysml-serializer.ts` emits SysML v2 textual notation. It MUST
+`packages/sysml/src/sysml-serializer.ts` emits SysML v2 textual notation. It MUST
 conform to the grammar vendored in `docs/sysml-v2-reference/`. The grammar is the SOURCE OF
 TRUTH — **never guess SysML v2 syntax from memory.** When in doubt about a form, read the
 vendored `.g4` and the cheatsheet, not your recollection.
@@ -70,19 +69,19 @@ confirm against a live Cameo import — the local validator alone is insufficien
 
 Edit the serializer or model, then run this gate **in order**. Do not skip to Cameo.
 
-1. Edit the serializer: `packages/mcp-server/src/utils/sysml-serializer.ts`
-2. Regenerate the model: `pnpm tsx scripts/generate-cc-model.ts`
+1. Edit the serializer: `packages/sysml/src/sysml-serializer.ts`
+2. Regenerate the model: `pnpm demo  # Phase 1`
 3. Validate — this MUST report **0 errors**:
-   `pnpm validate:sysml examples/angars/model/cc-subsystem.sysml`
-   (equivalently `tools/sysml-validator/run.sh examples/angars/model/cc-subsystem.sysml`)
+   `pnpm validate:sysml <generated-file>.sysml`
+   (equivalently `tools/sysml-validator/run.sh <generated-file>.sysml`)
 4. **Only then** import to Cameo.
 
 A non-zero result at step 3 STOPS the gate. Fix the syntax from
 `docs/sysml-v2-reference/` and rerun from step 2 — never proceed to Cameo on a failing
 validator.
 
-Run the unit tests when you touch serializer or generator code:
-`pnpm --filter mcp-server test`.
+Run the unit tests when you touch serializer or model code:
+`pnpm --filter @sysml-bridge/sysml test` / `pnpm --filter @sysml-bridge/model test`.
 
 ---
 

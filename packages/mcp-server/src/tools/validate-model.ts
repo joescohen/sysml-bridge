@@ -1,11 +1,15 @@
 import { z } from "zod";
 import * as path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ModelStore } from "../store.js";
-import { audit } from "../audit/index.js";
-import { loadCorpusCached } from "../audit/corpus.js";
-import { writeReports } from "../audit/report.js";
-import { FORWARD_TYPES, VERIFY_TYPES, BACKWARD_TYPES } from "../audit/relational.js";
+import type { ModelStore } from "@sysml-bridge/model";
+import {
+  audit,
+  loadCorpusCached,
+  writeReports,
+  FORWARD_TYPES,
+  VERIFY_TYPES,
+  BACKWARD_TYPES,
+} from "@sysml-bridge/gates";
 
 // ---------------------------------------------------------------------------
 // CR-01: corpus_path containment guard
@@ -259,8 +263,15 @@ export function registerValidateModel(server: McpServer, smaps: ModelStore) {
         const corpus = await loadCorpusCached(corpusPath);
 
         // Gather all elements for the audit (allRels already fetched above).
+        // The store classifies source/target-bearing elements as relationships
+        // and returns them from BOTH queryElements() and queryRelationships();
+        // passing them in both lists makes every relationship a spurious
+        // GATE02-id-duplicate. Audit structural elements only — scope derived
+        // from the store's own classification, not a hardcoded type list.
         const allElements = await smaps.queryElements();
-        const auditResult = audit(allElements, allRels, corpus);
+        const relIds = new Set(allRels.map((r) => r.id));
+        const structuralElements = allElements.filter((e) => !relIds.has(e.id));
+        const auditResult = audit(structuralElements, allRels, corpus);
 
         // Optional report write (default false — keeps existing tests clean).
         let reportPaths: { matrixPath: string; fidelityPath: string } | undefined;

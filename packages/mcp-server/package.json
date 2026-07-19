@@ -1,7 +1,7 @@
 {
   "name": "@sysml-bridge/mcp-server",
   "version": "0.1.0",
-  "description": "MCP server wrapping the SysML v2 SMAPS REST API",
+  "description": "MCP server: 10 SysML v2 authoring tools over the file-native ModelStore",
   "author": "Joe Cohen",
   "license": "MIT",
   "repository": {
@@ -9,32 +9,26 @@
     "url": "https://github.com/joescohen/sysml-bridge.git",
     "directory": "packages/mcp-server"
   },
-  "keywords": [
-    "mcp",
-    "mcp-server",
-    "sysml",
-    "sysml-v2",
-    "smaps",
-    "mbse",
-    "claude-code"
-  ],
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@sysml-bridge/ir": "workspace:*",
-    "fastest-levenshtein": "^1.0.16",
+    "@sysml-bridge/gates": "workspace:*",
+    "@sysml-bridge/model": "workspace:*",
+    "@sysml-bridge/sysml": "workspace:*",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@sysml-bridge/invariants": "workspace:*",
     "@types/node": "^25.6.0",
     "tsx": "^4.0.0",
     "typescript": "^5.5.0",

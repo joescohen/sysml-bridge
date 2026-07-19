@@ -20,15 +20,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
-import { structuralCheck, checkBatch } from "../audit/structural.js";
-import type { Candidate } from "../audit/structural.js";
-import type { SysmlElement } from "../types/sysml-elements.js";
-import type { Finding } from "../audit/findings.js";
-import { FileStore } from "../file-store.js";
+import { structuralCheck, checkBatch, clearCorpusCache } from "@sysml-bridge/gates";
+import type { Candidate, Finding } from "@sysml-bridge/gates";
+import { hasFinding } from "@sysml-bridge/invariants";
+import type { SysmlElement } from "@sysml-bridge/model";
+import { FileStore } from "@sysml-bridge/model";
 import { registerCreateElement } from "../tools/create-element.js";
 import { registerCreateRelationship } from "../tools/create-relationship.js";
 import { registerImportSysml } from "../tools/import-sysml.js";
-import { clearCorpusCache } from "../audit/corpus.js";
 
 // ---------------------------------------------------------------------------
 // Helper: build a minimal SysmlElement for the "existing" set
@@ -65,7 +64,7 @@ describe("pure-function structural check", () => {
     };
 
     const findings = structuralCheck(candidate, [reqDef, partUsage], null);
-    expect(findings.some((f) => f.ruleId === "R4-def-operand")).toBe(true);
+    expect(hasFinding(findings, { ruleId: "R4-def-operand" })).toBe(true);
     const r4 = findings.find((f) => f.ruleId === "R4-def-operand")!;
     expect(r4.severity).toBe("error");
   });
@@ -81,7 +80,7 @@ describe("pure-function structural check", () => {
     };
 
     const findings = structuralCheck(candidate, [partUsage], null);
-    expect(findings.some((f) => f.ruleId === "GATE02-dangling-endpoint")).toBe(true);
+    expect(hasFinding(findings, { ruleId: "GATE02-dangling-endpoint" })).toBe(true);
     const dangling = findings.find((f) => f.ruleId === "GATE02-dangling-endpoint")!;
     expect(dangling.severity).toBe("error");
   });
@@ -98,7 +97,7 @@ describe("pure-function structural check", () => {
 
     const resolutionSet = new Set(["real-corpus-id"]);
     const findings = structuralCheck(candidate, [], resolutionSet);
-    expect(findings.some((f) => f.ruleId === "GATE03-unresolvable-provenance")).toBe(true);
+    expect(hasFinding(findings, { ruleId: "GATE03-unresolvable-provenance" })).toBe(true);
     const f = findings.find((f) => f.ruleId === "GATE03-unresolvable-provenance")!;
     expect(f.severity).toBe("error");
   });
@@ -113,7 +112,7 @@ describe("pure-function structural check", () => {
 
     // null means corpus is unavailable — provenance existence check is skipped
     const findings = structuralCheck(candidate, [], null);
-    expect(findings.some((f) => f.ruleId === "GATE03-unresolvable-provenance")).toBe(false);
+    expect(hasFinding(findings, { ruleId: "GATE03-unresolvable-provenance" })).toBe(false);
   });
 
   it("Provenance: model-asserted → GATE03-model-asserted info finding (never blocks)", () => {
@@ -127,7 +126,7 @@ describe("pure-function structural check", () => {
     // resolution set contains "model-asserted" (from ALLOWLIST)
     const resolutionSet = new Set(["model-asserted"]);
     const findings = structuralCheck(candidate, [], resolutionSet);
-    expect(findings.some((f) => f.ruleId === "GATE03-model-asserted")).toBe(true);
+    expect(hasFinding(findings, { ruleId: "GATE03-model-asserted" })).toBe(true);
     const infoF = findings.find((f) => f.ruleId === "GATE03-model-asserted")!;
     expect(infoF.severity).toBe("info");
     // must NOT produce an error for model-asserted
@@ -166,7 +165,7 @@ describe("pure-function structural check", () => {
       "GATE02-uncovered-need",
     ];
     for (const ruleId of completenessRuleIds) {
-      expect(findings.some((f) => f.ruleId === ruleId)).toBe(false);
+      expect(hasFinding(findings, { ruleId: ruleId })).toBe(false);
     }
   });
 
@@ -186,7 +185,7 @@ describe("pure-function structural check", () => {
 
     const findings = checkBatch([c1, c2, c3], [], null);
     // c3 targets c1 and c2 which are in the cumulative set — should NOT be dangling
-    expect(findings.some((f) => f.ruleId === "GATE02-dangling-endpoint")).toBe(false);
+    expect(hasFinding(findings, { ruleId: "GATE02-dangling-endpoint" })).toBe(false);
   });
 
   it("checkBatch: if any candidate has an error finding, errors array is non-empty (all-or-nothing signal)", () => {
@@ -305,7 +304,7 @@ describe("MCP round-trip coupling", () => {
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     const parsed = JSON.parse(text);
     expect(parsed.rejected).toBe(true);
-    expect((parsed.findings as Finding[]).some((f) => f.ruleId === "R4-def-operand")).toBe(true);
+    expect(hasFinding((parsed.findings as Finding[]), { ruleId: "R4-def-operand" })).toBe(true);
 
     // Store must be unchanged (ROADMAP criterion 5)
     const afterElements = await store.queryElements();
@@ -337,7 +336,7 @@ describe("MCP round-trip coupling", () => {
     const parsed = JSON.parse(text);
     // Response shape B2: findings are included (auditable bypass)
     expect(parsed.element).toBeDefined();
-    expect((parsed.findings as Finding[]).some((f) => f.ruleId === "R4-def-operand")).toBe(true);
+    expect(hasFinding((parsed.findings as Finding[]), { ruleId: "R4-def-operand" })).toBe(true);
 
     // Relationship was persisted
     const relationships = await store.queryRelationships();
@@ -365,7 +364,7 @@ describe("MCP round-trip coupling", () => {
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     const parsed = JSON.parse(text);
     expect(parsed.rejected).toBe(true);
-    expect((parsed.findings as Finding[]).some((f) => f.ruleId === "GATE02-dangling-endpoint")).toBe(true);
+    expect(hasFinding((parsed.findings as Finding[]), { ruleId: "GATE02-dangling-endpoint" })).toBe(true);
 
     const afterRelationships = await store.queryRelationships();
     expect(afterRelationships.length).toBe(beforeRelationships.length);
@@ -393,7 +392,7 @@ describe("MCP round-trip coupling", () => {
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     const parsed = JSON.parse(text);
     expect(parsed.rejected).toBe(true);
-    expect((parsed.findings as Finding[]).some((f) => f.ruleId === "GATE03-unresolvable-provenance")).toBe(true);
+    expect(hasFinding((parsed.findings as Finding[]), { ruleId: "GATE03-unresolvable-provenance" })).toBe(true);
   });
 
   it("Provenance pass: create_element with valid corpus id succeeds", async () => {

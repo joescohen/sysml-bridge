@@ -1,0 +1,702 @@
+{
+  "subsystem": "Command & Control",
+  "needs": [
+    {
+      "id": "N1",
+      "name": "N1"
+    },
+    {
+      "id": "N12",
+      "name": "N12"
+    },
+    {
+      "id": "N15",
+      "name": "N15"
+    },
+    {
+      "id": "N16",
+      "name": "N16"
+    },
+    {
+      "id": "N2",
+      "name": "N2"
+    },
+    {
+      "id": "N7",
+      "name": "N7"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "ANGARS-4",
+      "name": "Aircraft ID Verification",
+      "statement": "The system shall verify and validate receiving aircraft identity before beginning fuel transfer.",
+      "needIds": [
+        "N1"
+      ],
+      "verifyMethod": "Demonstration"
+    },
+    {
+      "id": "ANGARS-10",
+      "name": "Multi-Platform Refueling",
+      "statement": "The system shall employ refueling procedures for both manned and unmanned aircraft.",
+      "needIds": [
+        "N1",
+        "N2"
+      ],
+      "verifyMethod": "Test"
+    },
+    {
+      "id": "ANGARS-14",
+      "name": "Fuel Capacity Check",
+      "statement": "The system shall verify receiving aircraft fuel capacity before transfer.",
+      "needIds": [
+        "N2"
+      ],
+      "verifyMethod": "Demonstration"
+    },
+    {
+      "id": "ANGARS-62",
+      "name": "Mission Success Rate",
+      "statement": "The system shall achieve ≥95% mission success rate under nominal conditions.",
+      "needIds": [
+        "N7"
+      ],
+      "verifyMethod": "Analysis"
+    },
+    {
+      "id": "ANGARS-67",
+      "name": "Post-Mission Reports",
+      "statement": "The system shall generate post-mission performance reports.",
+      "needIds": [
+        "N7"
+      ],
+      "verifyMethod": "Inspection"
+    },
+    {
+      "id": "ANGARS-103",
+      "name": "HMI Mission Display",
+      "statement": "The HMI shall display real-time mission schedules, queued aircraft status, and threat alerts for operators.",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Demonstration"
+    },
+    {
+      "id": "ANGARS-104",
+      "name": "Manual Override Speed",
+      "statement": "The HMI shall allow manual override within 2.5 seconds (T), 2 seconds (O).",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Demonstration"
+    },
+    {
+      "id": "ANGARS-105",
+      "name": "Emergency Shutdown",
+      "statement": "The HMI shall include emergency shutdown controls.",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Test"
+    },
+    {
+      "id": "ANGARS-106",
+      "name": "Tactile Alerts",
+      "statement": "The HMI shall provide tactile feedback for critical alerts.",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Test"
+    },
+    {
+      "id": "ANGARS-107",
+      "name": "Voice Command Support",
+      "statement": "The HMI shall support voice commands for operator actions.",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Test"
+    },
+    {
+      "id": "ANGARS-108",
+      "name": "HMI Refresh Rate",
+      "statement": "The HMI shall display graphical data at 30 Hz (T), 60 Hz (O).",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Test"
+    },
+    {
+      "id": "ANGARS-109",
+      "name": "Subsystem Health Display",
+      "statement": "The HMI shall display subsystem health using red (fault), yellow (degraded), and green (nominal) per MIL-STD-1472G.",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Inspection"
+    },
+    {
+      "id": "ANGARS-110",
+      "name": "Multilingual HMI",
+      "statement": "The HMI shall include the option for multilingual support for operators.",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Demonstration"
+    },
+    {
+      "id": "ANGARS-111",
+      "name": "Operator Action Logging",
+      "statement": "The HMI shall log operator actions and system context for audit purposes.",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Inspection"
+    },
+    {
+      "id": "ANGARS-112",
+      "name": "Haptic Emergency Alerts",
+      "statement": "The HMI shall provide haptic feedback to operators for emergency alerts.",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Demonstration"
+    },
+    {
+      "id": "ANGARS-113",
+      "name": "HMI Update Speed",
+      "statement": "The HMI shall update status displays every 0.5 seconds (T), 0.2 seconds (O).",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Test"
+    },
+    {
+      "id": "ANGARS-114",
+      "name": "Ground Dashboard Integration",
+      "statement": "The HMI shall integrate with ground control station dashboards.",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Demonstration"
+    },
+    {
+      "id": "ANGARS-115",
+      "name": "Critical Control Lockdown",
+      "statement": "The HMI shall disable non-essential controls during critical emergencies.",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Test"
+    },
+    {
+      "id": "ANGARS-116",
+      "name": "Manual Override Instructions",
+      "statement": "The HMI shall provide step-by-step instructions for manual override.",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Analysis"
+    },
+    {
+      "id": "ANGARS-117",
+      "name": "Refueling Queue Reprioritization",
+      "statement": "The HMI shall allow operators to manually reprioritize refueling queues during emergencies.",
+      "needIds": [
+        "N12"
+      ],
+      "verifyMethod": "Demonstration"
+    },
+    {
+      "id": "ANGARS-141",
+      "name": "Fuel Schedule Optimization",
+      "statement": "The system shall employ an optimized fuel transfering schedule based on receiving aircraft priority.",
+      "needIds": [
+        "N15"
+      ],
+      "verifyMethod": "Analysis"
+    },
+    {
+      "id": "ANGARS-147",
+      "name": "Low-Fuel Priority",
+      "statement": "The system shall prioritize refueling for low-fuel receiving aircraft first.",
+      "needIds": [
+        "N15"
+      ],
+      "verifyMethod": "Analysis"
+    },
+    {
+      "id": "ANGARS-149",
+      "name": "Refueling Request Processing",
+      "statement": "The system shall receive, authenticate, and process refueling requests from ground control via satellite within 10 seconds (T), 8 seconds (O).",
+      "needIds": [
+        "N16"
+      ],
+      "verifyMethod": "Test"
+    },
+    {
+      "id": "ANGARS-150",
+      "name": "Refueling Priority Logic",
+      "statement": "The system shall prioritize refueling requests based on aircraft fuel urgency, mission criticality, and operational efficiency algorithms.",
+      "needIds": [
+        "N16"
+      ],
+      "verifyMethod": "Analysis"
+    },
+    {
+      "id": "ANGARS-151",
+      "name": "Schedule Generation Speed",
+      "statement": "The system shall generate a refueling schedule and broadcast it to queued aircraft and the ground within 30 seconds (T), 20 seconds (O) of mission assignment.",
+      "needIds": [
+        "N16"
+      ],
+      "verifyMethod": "Demonstration"
+    },
+    {
+      "id": "ANGARS-152",
+      "name": "Dynamic Schedule Updates",
+      "statement": "The system shall update schedules dynamically in response to new requests or mission disruptions (e.g., threats, weather).",
+      "needIds": [
+        "N16"
+      ],
+      "verifyMethod": "Test"
+    },
+    {
+      "id": "ANGARS-153",
+      "name": "Post-Mission Reporting",
+      "statement": "The system shall generate and transmit post-mission reports (fuel transferred, anomalies, threats) to ground control within 5 minutes (T), 3 minutes (O) of mission completion.",
+      "needIds": [
+        "N16"
+      ],
+      "verifyMethod": "Demonstration"
+    },
+    {
+      "id": "ANGARS-154",
+      "name": "Mission Status Updates",
+      "statement": "The system shall transmit mission status updates to ground control every 30 seconds.",
+      "needIds": [
+        "N16"
+      ],
+      "verifyMethod": "Demonstration"
+    }
+  ],
+  "functions": [
+    {
+      "id": "F1",
+      "name": "Manage Refueling Requests",
+      "level": "L2",
+      "owner": "ANGARS Top Level System Behaviors"
+    },
+    {
+      "id": "F8",
+      "name": "Manage HMI",
+      "level": "L2",
+      "owner": "ANGARS Top Level System Behaviors"
+    },
+    {
+      "id": "F1.1",
+      "name": "Receive & Authenticate Request",
+      "level": "L3",
+      "owner": "F1: Manage Refueling Requests"
+    },
+    {
+      "id": "F1.2",
+      "name": "Validate Fuel Capacity",
+      "level": "L3",
+      "owner": "F1: Manage Refueling Requests"
+    },
+    {
+      "id": "F1.3",
+      "name": "Prioritize Requests",
+      "level": "L3",
+      "owner": "F1: Manage Refueling Requests"
+    },
+    {
+      "id": "F1.4",
+      "name": "Generate Schedule",
+      "level": "L3",
+      "owner": "F1: Manage Refueling Requests"
+    },
+    {
+      "id": "F1.5",
+      "name": "Update Schedule Dynamically",
+      "level": "L3",
+      "owner": "F1: Manage Refueling Requests"
+    },
+    {
+      "id": "F1.6",
+      "name": "Transmit Status & Reports",
+      "level": "L3",
+      "owner": "F1: Manage Refueling Requests"
+    },
+    {
+      "id": "F8.1",
+      "name": "Display Mission Data",
+      "level": "L3",
+      "owner": "F8: Manage HMI"
+    },
+    {
+      "id": "F8.2",
+      "name": "Receive Operator Input",
+      "level": "L3",
+      "owner": "F8: Manage HMI"
+    },
+    {
+      "id": "F8.3",
+      "name": "Process Manual Override",
+      "level": "L3",
+      "owner": "F8: Manage HMI"
+    },
+    {
+      "id": "F8.4",
+      "name": "Execute Emergency Controls",
+      "level": "L3",
+      "owner": "F8: Manage HMI"
+    },
+    {
+      "id": "F8.5",
+      "name": "Provide Alerts & Feedback",
+      "level": "L3",
+      "owner": "F8: Manage HMI"
+    },
+    {
+      "id": "F8.6",
+      "name": "Update HMI Displays",
+      "level": "L3",
+      "owner": "F8: Manage HMI"
+    },
+    {
+      "id": "F8.7",
+      "name": "Subsystem Health & Multilingual Interface Support",
+      "level": "L3",
+      "owner": "F8: Manage HMI"
+    },
+    {
+      "id": "F8.8",
+      "name": "Logging & Dashboard Integration",
+      "level": "L3",
+      "owner": "F8: Manage HMI"
+    },
+    {
+      "id": "F8.9",
+      "name": "Reprioritize Refueling Queue",
+      "level": "L3",
+      "owner": "F8: Manage HMI"
+    }
+  ],
+  "components": [
+    {
+      "name": "C&C Power Module"
+    },
+    {
+      "name": "Operator Control Plane"
+    },
+    {
+      "name": "Operator Console Module"
+    },
+    {
+      "name": "HMI Panel & Displays"
+    },
+    {
+      "name": "Haptic Alert Unit"
+    },
+    {
+      "name": "Flight Control Module"
+    }
+  ],
+  "satisfies": [
+    {
+      "reqId": "ANGARS-4",
+      "functionId": "F1.1"
+    },
+    {
+      "reqId": "ANGARS-10",
+      "functionId": "F1.1"
+    },
+    {
+      "reqId": "ANGARS-14",
+      "functionId": "F1.2"
+    },
+    {
+      "reqId": "ANGARS-62",
+      "functionId": "F1.6"
+    },
+    {
+      "reqId": "ANGARS-67",
+      "functionId": "F1.6"
+    },
+    {
+      "reqId": "ANGARS-103",
+      "functionId": "F8.1"
+    },
+    {
+      "reqId": "ANGARS-104",
+      "functionId": "F8.3"
+    },
+    {
+      "reqId": "ANGARS-105",
+      "functionId": "F8.4"
+    },
+    {
+      "reqId": "ANGARS-106",
+      "functionId": "F8.5"
+    },
+    {
+      "reqId": "ANGARS-107",
+      "functionId": "F8.2"
+    },
+    {
+      "reqId": "ANGARS-108",
+      "functionId": "F8.6"
+    },
+    {
+      "reqId": "ANGARS-109",
+      "functionId": "F8.7"
+    },
+    {
+      "reqId": "ANGARS-110",
+      "functionId": "F8.7"
+    },
+    {
+      "reqId": "ANGARS-111",
+      "functionId": "F8.8"
+    },
+    {
+      "reqId": "ANGARS-112",
+      "functionId": "F8.5"
+    },
+    {
+      "reqId": "ANGARS-113",
+      "functionId": "F8.6"
+    },
+    {
+      "reqId": "ANGARS-114",
+      "functionId": "F8.8"
+    },
+    {
+      "reqId": "ANGARS-115",
+      "functionId": "F8.4"
+    },
+    {
+      "reqId": "ANGARS-116",
+      "functionId": "F8.3"
+    },
+    {
+      "reqId": "ANGARS-117",
+      "functionId": "F8.9"
+    },
+    {
+      "reqId": "ANGARS-141",
+      "functionId": "F1.3"
+    },
+    {
+      "reqId": "ANGARS-147",
+      "functionId": "F1.3"
+    },
+    {
+      "reqId": "ANGARS-149",
+      "functionId": "F1.1"
+    },
+    {
+      "reqId": "ANGARS-150",
+      "functionId": "F1.3"
+    },
+    {
+      "reqId": "ANGARS-151",
+      "functionId": "F1.4"
+    },
+    {
+      "reqId": "ANGARS-152",
+      "functionId": "F1.5"
+    },
+    {
+      "reqId": "ANGARS-153",
+      "functionId": "F1.6"
+    },
+    {
+      "reqId": "ANGARS-154",
+      "functionId": "F1.6"
+    }
+  ],
+  "allocations": [],
+  "allocationsNote": "No corpus Func→Comp source; allocations are model-asserted downstream.",
+  "n2Interfaces": [
+    {
+      "id": "n2-00482586b5584787",
+      "kind": "n2",
+      "scope": "component",
+      "sourceId": "component-3eabf39d997a305b",
+      "targetId": "component-a768f13fb7603b60",
+      "sourceLabel": "Operator Console Module",
+      "targetLabel": "Operator Control Plane",
+      "flow": "Operator Commands",
+      "provenance": {
+        "workbook": "Interface Data N2.xlsx",
+        "sheet": "C&C",
+        "row": 3,
+        "cell": "D5"
+      }
+    },
+    {
+      "id": "n2-1b046be17d1f6fbb",
+      "kind": "n2",
+      "scope": "component",
+      "sourceId": "component-02ae886513142411",
+      "targetId": "component-dc9a5a9d25a0b327",
+      "sourceLabel": "C&C Power Module",
+      "targetLabel": "Flight Control Module",
+      "flow": "3.3VDC",
+      "provenance": {
+        "workbook": "Interface Data N2.xlsx",
+        "sheet": "C&C",
+        "row": 1,
+        "cell": "H3"
+      }
+    },
+    {
+      "id": "n2-240cf1843763b3a1",
+      "kind": "n2",
+      "scope": "component",
+      "sourceId": "component-a768f13fb7603b60",
+      "targetId": "component-00459388289a4e7e",
+      "sourceLabel": "Operator Control Plane",
+      "targetLabel": "HMI Panel & Displays",
+      "flow": "Show Health & Language Options",
+      "provenance": {
+        "workbook": "Interface Data N2.xlsx",
+        "sheet": "C&C",
+        "row": 2,
+        "cell": "F4"
+      }
+    },
+    {
+      "id": "n2-2b2f3799a3d913fd",
+      "kind": "n2",
+      "scope": "component",
+      "sourceId": "component-a768f13fb7603b60",
+      "targetId": "component-00459388289a4e7e",
+      "sourceLabel": "Operator Control Plane",
+      "targetLabel": "HMI Panel & Displays",
+      "flow": "Emergency Alerts",
+      "provenance": {
+        "workbook": "Interface Data N2.xlsx",
+        "sheet": "C&C",
+        "row": 2,
+        "cell": "F4"
+      }
+    },
+    {
+      "id": "n2-353a4602ddbba402",
+      "kind": "n2",
+      "scope": "component",
+      "sourceId": "component-a768f13fb7603b60",
+      "targetId": "component-00459388289a4e7e",
+      "sourceLabel": "Operator Control Plane",
+      "targetLabel": "HMI Panel & Displays",
+      "flow": "Critical Alerts",
+      "provenance": {
+        "workbook": "Interface Data N2.xlsx",
+        "sheet": "C&C",
+        "row": 2,
+        "cell": "F4"
+      }
+    },
+    {
+      "id": "n2-5dc46e349c0a56cb",
+      "kind": "n2",
+      "scope": "component",
+      "sourceId": "component-a768f13fb7603b60",
+      "targetId": "component-b44eb253ed241358",
+      "sourceLabel": "Operator Control Plane",
+      "targetLabel": "Haptic Alert Unit",
+      "flow": "Critical Alerts",
+      "provenance": {
+        "workbook": "Interface Data N2.xlsx",
+        "sheet": "C&C",
+        "row": 2,
+        "cell": "G4"
+      }
+    },
+    {
+      "id": "n2-aed7e38128757acf",
+      "kind": "n2",
+      "scope": "component",
+      "sourceId": "component-a768f13fb7603b60",
+      "targetId": "component-b44eb253ed241358",
+      "sourceLabel": "Operator Control Plane",
+      "targetLabel": "Haptic Alert Unit",
+      "flow": "Haptic/Tactile Alerts",
+      "provenance": {
+        "workbook": "Interface Data N2.xlsx",
+        "sheet": "C&C",
+        "row": 2,
+        "cell": "G4"
+      }
+    },
+    {
+      "id": "n2-b261750c4034d235",
+      "kind": "n2",
+      "scope": "component",
+      "sourceId": "component-02ae886513142411",
+      "targetId": "component-3eabf39d997a305b",
+      "sourceLabel": "C&C Power Module",
+      "targetLabel": "Operator Console Module",
+      "flow": "3.3VDC",
+      "provenance": {
+        "workbook": "Interface Data N2.xlsx",
+        "sheet": "C&C",
+        "row": 1,
+        "cell": "E3"
+      }
+    },
+    {
+      "id": "n2-bc75917c1b836057",
+      "kind": "n2",
+      "scope": "component",
+      "sourceId": "component-a768f13fb7603b60",
+      "targetId": "component-00459388289a4e7e",
+      "sourceLabel": "Operator Control Plane",
+      "targetLabel": "HMI Panel & Displays",
+      "flow": "Diagnostics",
+      "provenance": {
+        "workbook": "Interface Data N2.xlsx",
+        "sheet": "C&C",
+        "row": 2,
+        "cell": "F4"
+      }
+    },
+    {
+      "id": "n2-e14955e31553eb5a",
+      "kind": "n2",
+      "scope": "component",
+      "sourceId": "component-a768f13fb7603b60",
+      "targetId": "component-dc9a5a9d25a0b327",
+      "sourceLabel": "Operator Control Plane",
+      "targetLabel": "Flight Control Module",
+      "flow": "Operator Commands",
+      "provenance": {
+        "workbook": "Interface Data N2.xlsx",
+        "sheet": "C&C",
+        "row": 2,
+        "cell": "H4"
+      }
+    },
+    {
+      "id": "n2-ecd5e89440c2930f",
+      "kind": "n2",
+      "scope": "component",
+      "sourceId": "component-02ae886513142411",
+      "targetId": "component-a768f13fb7603b60",
+      "sourceLabel": "C&C Power Module",
+      "targetLabel": "Operator Control Plane",
+      "flow": "3.3VDC",
+      "provenance": {
+        "workbook": "Interface Data N2.xlsx",
+        "sheet": "C&C",
+        "row": 1,
+        "cell": "D3"
+      }
+    }
+  ]
+}

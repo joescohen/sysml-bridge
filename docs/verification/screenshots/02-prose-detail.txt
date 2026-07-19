@@ -1,0 +1,10 @@
+Autonomous refueling without human-induced errors such as fatigue and inefficiencies in contested environments
+prose · need · prose-candidate-8ee9bf11f0c64a4c
+TEXT
+Autonomous refueling without human-induced errors such as fatigue and inefficiencies in contested environments
+CITATION
+Traditional refueling methods rely primarily on human operators, posing risks of human-induced errors such as fatigue, inefficiencies in contested environments
+angars-conops · root · chunk d93a0d6e2c4aa8b58391399e24ac18dd
+Approve
+Reject
+current: pending

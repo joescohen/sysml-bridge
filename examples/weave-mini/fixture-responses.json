@@ -1,0 +1,213 @@
+{
+  "schema": "sysml-foundry/weave-mini-fixture-responses@1",
+  "description": "Recorded (fixture) LLM provider responses for the weave-mini proof-of-recall corpus (W4, spec §6). One CandidateProposal[] batch per corpus document, standing in for what a real LLM would extract from that document's single chunk. Every 'quote' is a byte-verbatim substring of that document's actual chunk text — verified by packages/candidates/src/__tests__/weave-mini-eval.test.ts via the SAME quoteOccursInChunk gate the real pipeline uses (a proposal whose quote drifts from the corpus text is DROPPED, not silently accepted). citedChunkId is intentionally absent here — each corpus document parses+chunks to exactly ONE chunk, so the consuming FixtureProvider stamps citedChunkId from whatever chunk id the pipeline actually assigns.",
+  "docs": [
+    { "file": "system-overview.md", "documentId": "weave-mini-overview", "sectionPath": "Cargo Handling" },
+    { "file": "subsystem-spec.docx", "documentId": "weave-mini-subsystem", "sectionPath": "Cargo Handling/Safety" },
+    { "file": "requirements-matrix.xlsx", "documentId": "weave-mini-matrix", "sectionPath": "Cargo Handling/Requirements" }
+  ],
+  "proposals": {
+    "weave-mini-overview": [
+      {
+        "kind": "component",
+        "fields": { "name": "Cargo Handling Controller" },
+        "confidence": 0.9,
+        "quote": "The Cargo Handling Controller coordinates all cargo handling activity from a central rack-mounted unit."
+      },
+      {
+        "kind": "component",
+        "fields": { "name": "Position Sensor Array" },
+        "confidence": 0.9,
+        "quote": "The Position Sensor Array detects pallet position along the conveyor path."
+      },
+      {
+        "kind": "component",
+        "fields": { "name": "Conveyor Drive Motor" },
+        "confidence": 0.9,
+        "quote": "The Conveyor Drive Motor drives the main conveyor belt at variable speed."
+      },
+      {
+        "kind": "component",
+        "fields": { "name": "Load Cell Assembly" },
+        "confidence": 0.9,
+        "quote": "The Load Cell Assembly measures the weight of each pallet as it crosses the load station."
+      },
+      {
+        "kind": "function",
+        "fields": { "name": "Detect Cargo Presence" },
+        "confidence": 0.85,
+        "quote": "The Detect Cargo Presence function signals the controller when a pallet enters the load zone."
+      },
+      {
+        "kind": "function",
+        "fields": { "name": "Compute Load Distribution" },
+        "confidence": 0.85,
+        "quote": "The Compute Load Distribution function calculates the weight distribution across the conveyor deck."
+      },
+      {
+        "kind": "function",
+        "fields": { "name": "Monitor Conveyor Speed" },
+        "confidence": 0.85,
+        "quote": "The Monitor Conveyor Speed function tracks belt speed against the commanded setpoint."
+      },
+      {
+        "_comment": "TRAP half A: surface form 'Interlock' as a MODE — see weave-mini-subsystem for TRAP half B (same surface form as a COMPONENT). Must NOT auto-cluster or merge-propose together (answer-key.json 'trap').",
+        "kind": "mode",
+        "fields": { "name": "Interlock" },
+        "confidence": 0.8,
+        "quote": "The system enters the Interlock mode whenever an obstruction is detected on the conveyor path."
+      },
+      {
+        "kind": "requirement",
+        "fields": { "text": "REQ-001: The system shall detect pallet presence within 200 milliseconds of entry into the load zone.", "id": "REQ-001" },
+        "confidence": 0.9,
+        "quote": "REQ-001: The system shall detect pallet presence within 200 milliseconds of entry into the load zone."
+      },
+      {
+        "kind": "requirement",
+        "fields": { "text": "REQ-002: The system shall compute load distribution across the conveyor deck within 1 second of a weight reading.", "id": "REQ-002" },
+        "confidence": 0.9,
+        "quote": "REQ-002: The system shall compute load distribution across the conveyor deck within 1 second of a weight reading."
+      },
+      {
+        "kind": "requirement",
+        "fields": { "text": "REQ-003: The system shall enter the Interlock mode within 100 milliseconds of an obstruction detection.", "id": "REQ-003" },
+        "confidence": 0.9,
+        "quote": "REQ-003: The system shall enter the Interlock mode within 100 milliseconds of an obstruction detection."
+      }
+    ],
+    "weave-mini-subsystem": [
+      {
+        "_comment": "Cross-doc ACRONYM alias of 'Cargo Handling Controller' (weave-mini-overview) — answer-key.json entities.acronymPair.",
+        "kind": "component",
+        "fields": { "name": "CHC" },
+        "confidence": 0.8,
+        "quote": "The CHC executes the top-level cargo handling control loop and mediates all safety interlocks."
+      },
+      {
+        "_comment": "TRAP half B: surface form 'Interlock' as a COMPONENT — see weave-mini-overview for TRAP half A (same surface form as a MODE).",
+        "kind": "component",
+        "fields": { "name": "Interlock" },
+        "confidence": 0.85,
+        "quote": "The Interlock isolates power to the conveyor drive within 500 milliseconds of a detected obstruction."
+      },
+      {
+        "kind": "component",
+        "fields": { "name": "Boom Actuator" },
+        "confidence": 0.85,
+        "quote": "The Boom Actuator raises and lowers the loading boom during pallet transfer."
+      },
+      {
+        "kind": "component",
+        "fields": { "name": "Fault Logger" },
+        "confidence": 0.85,
+        "quote": "The Fault Logger records fault events raised by any cargo handling component."
+      },
+      {
+        "_comment": "Cross-doc EXACT alias of 'Position Sensor Array' (weave-mini-overview) — identical spelling, auto-clusters into ONE cross-document entity.",
+        "kind": "component",
+        "fields": { "name": "Position Sensor Array" },
+        "confidence": 0.85,
+        "quote": "The Position Sensor Array reports pallet position to the CHC over the internal data bus."
+      },
+      {
+        "kind": "mode",
+        "fields": { "name": "Standby" },
+        "confidence": 0.75,
+        "quote": "The system may enter the Standby mode when no cargo handling activity has been commanded for 10 minutes."
+      },
+      {
+        "kind": "function",
+        "fields": { "name": "Validate Load Capacity" },
+        "confidence": 0.85,
+        "quote": "The Validate Load Capacity function confirms that the measured pallet weight is within the rated conveyor capacity."
+      },
+      {
+        "kind": "function",
+        "fields": { "name": "Log Fault Event" },
+        "confidence": 0.85,
+        "quote": "The Log Fault Event function appends a fault record to the fault logger whenever a component reports an error."
+      },
+      {
+        "kind": "function",
+        "fields": { "name": "Transmit Fault Summary" },
+        "confidence": 0.85,
+        "quote": "The Transmit Fault Summary function assembles the fault log and Diagnostic Interface status into a per-flight report."
+      },
+      {
+        "kind": "requirement",
+        "fields": { "text": "REQ-004: The Interlock shall isolate power to the conveyor drive within 500 milliseconds of a detected obstruction.", "id": "REQ-004" },
+        "confidence": 0.9,
+        "quote": "REQ-004: The Interlock shall isolate power to the conveyor drive within 500 milliseconds of a detected obstruction."
+      },
+      {
+        "kind": "requirement",
+        "fields": { "text": "REQ-005: The Boom Actuator shall complete a full raise cycle within 3 seconds.", "id": "REQ-005" },
+        "confidence": 0.9,
+        "quote": "REQ-005: The Boom Actuator shall complete a full raise cycle within 3 seconds."
+      },
+      {
+        "kind": "requirement",
+        "fields": { "text": "REQ-006: The Fault Logger shall retain the most recent 500 fault records.", "id": "REQ-006" },
+        "confidence": 0.9,
+        "quote": "REQ-006: The Fault Logger shall retain the most recent 500 fault records."
+      },
+      {
+        "kind": "requirement",
+        "fields": { "text": "REQ-007: The CHC shall command the Boom Actuator only while the system is outside the Interlock mode.", "id": "REQ-007" },
+        "confidence": 0.9,
+        "quote": "REQ-007: The CHC shall command the Boom Actuator only while the system is outside the Interlock mode."
+      }
+    ],
+    "weave-mini-matrix": [
+      {
+        "kind": "component",
+        "fields": { "name": "Diagnostic Interface" },
+        "confidence": 0.8,
+        "quote": "The Diagnostic Interface shall report component health status every 5 seconds."
+      },
+      {
+        "_comment": "Cross-doc EXACT alias of 'Cargo Handling Controller' (weave-mini-overview).",
+        "kind": "component",
+        "fields": { "name": "Cargo Handling Controller" },
+        "confidence": 0.8,
+        "quote": "The Cargo Handling Controller shall log all mode transitions with a UTC timestamp."
+      },
+      {
+        "_comment": "Cross-doc EXACT alias of 'Fault Logger' (weave-mini-subsystem).",
+        "kind": "component",
+        "fields": { "name": "Fault Logger" },
+        "confidence": 0.8,
+        "quote": "The Fault Logger shall transmit a summary report to the Cargo Handling Controller once per flight leg."
+      },
+      {
+        "kind": "requirement",
+        "fields": { "text": "The Diagnostic Interface shall report component health status every 5 seconds.", "id": "REQ-008" },
+        "confidence": 0.85,
+        "quote": "The Diagnostic Interface shall report component health status every 5 seconds."
+      },
+      {
+        "kind": "requirement",
+        "fields": { "text": "The Cargo Handling Controller shall log all mode transitions with a UTC timestamp.", "id": "REQ-009" },
+        "confidence": 0.85,
+        "quote": "The Cargo Handling Controller shall log all mode transitions with a UTC timestamp."
+      },
+      {
+        "kind": "requirement",
+        "fields": { "text": "The Fault Logger shall transmit a summary report to the Cargo Handling Controller once per flight leg.", "id": "REQ-010" },
+        "confidence": 0.85,
+        "quote": "The Fault Logger shall transmit a summary report to the Cargo Handling Controller once per flight leg."
+      },
+      {
+        "kind": "need",
+        "fields": {
+          "text": "Provide autonomous cargo loading and unloading without manual intervention.",
+          "id": "N-001",
+          "name": "Autonomous Cargo Handling"
+        },
+        "confidence": 0.8,
+        "quote": "Provide autonomous cargo loading and unloading without manual intervention."
+      }
+    ]
+  }
+}

@@ -1,274 +1,235 @@
 # sysml-bridge
 
-Claude Code skill suite + MCP server for natural-language → SysML v2 MBSE workflows, validated locally and imported into Cameo Enterprise Architecture.
+**Corpus-grounded SysML v2 authoring with Claude — every element cited, every gate enforced.**
 
-## What is this?
+<a href="https://github.com/joescohen/sysml-bridge/actions/workflows/ci.yml"><img src="https://github.com/joescohen/sysml-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 
-A bridge between Claude Code and the SysML v2 ecosystem. Describe a system in natural
-language — or ingest an existing corpus of requirements, specs, and conversation — and the
-tool builds a SysML v2 model through the full MBSE lifecycle: requirements, architecture,
-behavior, traceability, verification.
+sysml-bridge turns an engineering corpus — requirement spreadsheets, interface (N2) matrices,
+specification PDFs — into a validated SysML v2 model, and renders it as Cameo-style diagrams. The
+whole Tier-1 pipeline is deterministic and runs with no API key: `pnpm demo` goes corpus →
+extract → build → audit → grammar-validate → render on the committed ANGARS corpus.
 
-The model is held in a **file-native store**, serialized to OMG **SysML v2 textual notation**,
-checked by an **in-repo grammar validator**, and materialized in **Cameo** ("Magic Systems of
-Systems Architect — SysML v2 Community 2026x"). On top of the authoring core sit two
-corpus-driven layers, both **human-gated**:
+![ANGARS Interconnection view — 6 part blocks wired by N2 interface flows](docs/gallery/angars-interconnection-subsystem-1.png)
 
-- **prose-ingest** — parses unstructured documents (PDFs, specs) into candidate requirements
-  with citations, for a human to approve into the model.
-- **inference (F8)** — proposes high-confidence links (allocations, mode memberships, flow
-  typing, control joins) from the model graph via an LLM propose/debate pipeline, again for
-  human approval.
+## The trust story
 
-> The discipline that makes this reliable: the serializer conforms to the **vendored SysML v2
-> grammar** (never to memory), and **every generated `.sysml` is validated locally before any
-> claim that it imports**. See [CLAUDE.md](CLAUDE.md) and [docs/sysml-v2-reference/](docs/sysml-v2-reference/).
+**Corpus-grounded.** Every model element carries a `provenanceSourceId` pointing back to the
+corpus row it came from — a requirement in a spreadsheet, an interface flow in an N2 matrix, a
+line in a spec. This is the anti-fabrication contract: it was born from a real failure on
+2026-06-09, when a hand-authored model quietly invented subsystems that were nowhere in the
+source. Nothing enters the model uncited. The Interconnection diagram above is the contract made
+visible — each of its connection edges traces to a specific N2 spreadsheet cell (workbook, sheet,
+row, cell).
 
-## How it works
+**Gate-validated.** Generated models pass three gates, in order, and the pipeline stops on the
+first failure:
 
-```
-   Natural language  +  corpus (PDFs, spreadsheets, conversation)
-                          │
-        ┌─────────────────┴───────────────────┐
-        │   prose-ingest          inference    │   candidate generation
-        │   (NL → candidates)     (F8 propose/  │
-        │                          debate)      │
-        └─────────────────┬───────────────────┘
-                          │   human-approval gate
-                          ▼
-            IR  —  extracted.json + approved prose/inferred layers (composeIR)
-                          │
-        ┌─────────────────┴───────────────────┐
-        │   15 MBSE skills        MCP server   │
-        │   (Claude Code)         (file-native │
-        │                          model store)│
-        └─────────────────┬───────────────────┘
-                          │   sysml-serializer
-                          ▼
-              .sysml  —  SysML v2 textual notation
-                          │
-              local ANTLR validator  —  grammar gate (must be 0 errors)
-                          │
-                          ▼
-       Cameo  —  paste into Textual Editor → Synchronize (Alt+S) → materialized model
-                          │
-              decisym-viewer  →  static PDF / PNG figures
-```
+1. **Gate 1 — model audit.** Provenance, relational, and fidelity checks over the built model
+   (`packages/gates`). A findings list that isn't empty stops the build.
+2. **Gate 2 — grammar validator.** The emitted `.sysml` is parsed by a committed ANTLR grammar
+   validator (`tools/sysml-validator`). A non-zero exit means the file will not import — no claim
+   that it does is permitted without a clean run on the exact file.
+3. **Gate 3 — Cameo import.** The manual semantic epilogue: paste the validated `.sysml` into
+   Cameo Enterprise Architecture's Textual Editor and synchronize. The grammar validator checks
+   syntax; Cameo is the binding semantic gate. Screenshots are the evidence — this step is not
+   automated.
 
-The MCP server is the only component that knows where the model lives. By default it uses a
-**local file-native store** (a diffable JSON document on disk — no server required). Set
-`SYSML_BRIDGE_BACKEND=smaps` to point the same tools at a live SysML v2 REST API endpoint
-(SMAPS / Cameo) instead — portability is a config change, not a rewrite.
+Each gate can fail, and each has been proven to fail against a known-bad input — a gate never
+shown to fail is not a gate you can trust.
 
-## Skills
+**Human-gated LLM layers.** The LLM-assisted layers — prose ingest and inference — *propose,
+never write*. Candidates arrive with citations and require an explicit human approval, made through
+`/mbse-approve`, before they can enter the model. No code path writes an approval; a source-scanning
+ratchet test fails if one ever does. See [Tier 2](#tier-2-human-gated-llm-layers) below. Tier-1
+stays fully deterministic and needs no API key.
 
-Fifteen Claude Code skills covering the MBSE lifecycle. They operate **only** through the MCP
-store tools and the canonical `extracted.json` IR contract.
+## Gallery
 
-**Authoring**
+Rendered by the DeciSym viewer fork directly from the validated `.sysml`, exported headless to
+PDF and PNG. All five are regenerated by `pnpm demo` on every run.
 
-| Skill | Purpose |
-|---|---|
-| `/mbse-init` | Bootstrap a project — stakeholder needs, system context, CONOPS |
-| `/mbse-requirements` | Create requirements + needs from the IR, with provenance backpointers and derive edges |
-| `/mbse-build` | Build BDD / IBD structure and F1–F9 activity functions (with N2 item flows) from the corpus |
-| `/mbse-decompose` | Build F→subfunction decomposition trees from `behaviorDecomp[]` data |
-| `/mbse-trace` | Build satisfy / allocate / verify traceability edges from the IR |
+### Interconnection (IBD)
 
-**Analysis & V&V**
+![Interconnection IBD](docs/gallery/angars-interconnection-subsystem-1.png)
 
-| Skill | Purpose |
-|---|---|
-| `/mbse-validate` | Binary traceability gate — every requirement satisfied AND verified; zero orphans/dangles |
-| `/mbse-verify` | V&V planning — map requirements to Test / Analysis / Inspection / Demonstration |
-| `/mbse-trade` | Weighted trade studies — Pugh matrices, MOE/MOP scoring, rationale |
-| `/mbse-kpp` | Key Performance Parameters, Measures of Effectiveness / Performance |
+The C&C subsystem's six `<<part>>` blocks — Operator Control Plane, Operator Console Module, HMI
+Panel & Displays, Haptic Alert Unit, Flight Control Module, C&C Power Module — wired by their
+interconnections. Every connection edge comes from a row in the ANGARS N2 interface data, and
+each carries provenance back to the exact spreadsheet cell it was read from.
 
-**Views & query**
+### General / subsystem (BDD)
 
-| Skill | Purpose |
-|---|---|
-| `/mbse-views` | Stakeholder-specific model views (operator / maintainer / PM) |
-| `/mbse-diagram` | Render model structure as Mermaid diagrams |
-| `/mbse-query` | Natural-language questions answered against actual model elements |
+![General subsystem BDD](docs/gallery/angars-general-subsystem-1.png)
 
-**Corpus-driven (human-gated)**
+The C&C Subsystem definition with its six part properties — the block-definition view of the same
+decomposition shown structurally in the IBD.
 
-| Skill | Purpose |
-|---|---|
-| `/mbse-ingest` | Review prose-ingestion candidates and approve/reject each — no auto-approve path |
-| `/mbse-infer` | Review F8 inferred-link candidates and approve/reject each — no auto-approve path |
-| `/mbse-edit` | NL edit loop — add / rename / retarget / remove via store tools only, diff-approved |
+### General / operations (activity)
 
-## MCP server tools
+![General operations activity](docs/gallery/angars-general-operations-1.png)
 
-The `sysml-bridge` MCP server exposes 11 backend-agnostic tools over a `ModelStore` interface:
+The C&C Operations action, decomposed into 15 corpus-grounded sub-actions (the F1.x scheduling
+and F8.x operator-interaction functions); the compartment view shows the first eight, from
+*Receive & Authenticate Request* to *Receive Operator Input*.
 
-| Tool | Purpose |
-|---|---|
-| `init_project` | Initialize or load a project (must be called first) |
-| `create_element` | Create any SysML v2 element (requirement, part, action, state, …) |
-| `query_elements` | Find elements by type and/or name pattern |
-| `update_element` | Rename / retype / retarget an element (GATE-05 coupling check) |
-| `delete_element` | Remove an element (refuses to strand relationship endpoints) |
-| `create_relationship` | Link elements — satisfy, allocate, derive, verify, dependency, … |
-| `query_relationships` | Get an element's relationships (in / out / both) |
-| `validate_model` | Completeness / consistency checks + binary traceability gate |
-| `export_sysml` | Serialize the model (or a scope) to SysML v2 textual notation |
-| `import_sysml` | Parse `.sysml` text and load elements into the store |
-| `get_project_state` | Element counts by type + project / branch / commit summary |
+### Requirements
 
-## Quick Start
+![Requirements view](docs/gallery/angars-requirements-1.png)
 
-### Prerequisites
+The `C&C Requirements` context: all 34 `<<requirement>>` usages — 6 stakeholder needs across the
+top rank, the 28 system requirements below — laid out as a derive tree, each system requirement's
+`«deriveReqt»` dependency pointing up to the stakeholder need it decomposes, with `satisfy` and
+`verify` edges dropping to the realizing actions and verification cases. At ANGARS scale each
+rank wraps into multiple sub-rows once it would exceed the canvas-width cap, so the diagram reads
+as a compact block (≈3590×1699 px) rather than a single unreadable horizontal ribbon. Every
+requirement and every edge traces back to a row in the ANGARS corpus.
 
-- Node.js >= 20 and [pnpm](https://pnpm.io/)
-- Python 3 (the local SysML validator uses a committed ANTLR parser; `run.sh` manages a `.venv`)
-- Claude Code with skills + MCP support
-- *(optional)* Rust toolchain — only to build the `decisym-viewer` figure renderer
-- *(optional)* Cameo "Magic Systems of Systems Architect — SysML v2 Community 2026x" to materialize models
+### Traceability
 
-### 1. Clone and install
+![Traceability view](docs/gallery/angars-traceability-1.png)
+
+The `C&C Trace` context: the cross-pillar web joining all four pillars — stakeholder needs,
+requirements, functions, and components — through 100 trace edges (`derive` / `satisfy` /
+`allocate` / `verify`), layered top-down by rank, with each over-wide rank wrapped into
+sub-rows so the web stays legible at README size (≈3590×1885 px) instead of stretching into a
+16 000-px strip. Every edge is corpus-grounded: no relationship appears here that isn't backed
+by a cell in the ANGARS interface, satisfy, or verification data.
+
+## Fidelity
+
+The build re-derives the requirement-to-satisfaction trace and compares it to the reference C&C
+model:
+
+**28/28 trace pairs (100%)** verified against the reference model, re-checked in CI on every push.
+
+The baseline is a committed constant (`examples/angars/fidelity-baseline.json`), read by CI —
+never hardcoded in the workflow. A drop below 100% is a failure to investigate, not a number to
+lower. Alongside it, 714 unit tests (134 model + 154 sysml + 94 gates + 203 candidates + 124
+mcp-server + 5 review-ui) run in CI, and the grammar validator ships with committed positive controls that
+prove it rejects bad syntax.
+
+## Quick start
 
 ```bash
 git clone https://github.com/joescohen/sysml-bridge.git
 cd sysml-bridge
 pnpm install
+python3 -m venv .venv && .venv/bin/pip install -r tools/sysml-validator/requirements.txt
+pnpm demo
 ```
 
-### 2. Build the MCP server
+`pnpm demo` runs the full Tier-1 pipeline — extract → build → Gate 1 → Gate 2 → render — and
+writes outputs to `examples/angars/out/`. It is deterministic and needs no `ANTHROPIC_API_KEY`.
+
+**Prerequisites:** Node 20+ and pnpm; Python 3 for the grammar validator (the venv above is a hard
+requirement — a missing validator venv fails the demo rather than skipping the gate); Rust
+toolchain 1.96 for the viewer (the render step builds it). `pdftoppm` (poppler-utils) is optional
+and only needed to rasterize the PDF renders into PNGs.
+
+## Demo tiers
+
+The repo is organized around four reviewer experiences, in increasing effort:
+
+| Tier | Experience | Requires | Status |
+|---|---|---|---|
+| 0 — browse | This README as a gallery: rendered views, fidelity numbers, the trust story | nothing | ships now |
+| 1 — run | `pnpm demo`: corpus → extract → build → Gate 1 → grammar validate → render, deterministic | Node + pnpm + Python | ships now |
+| 2 — gates | Human-gated LLM layers: prose candidates with citations, propose/approve, seeded-defect run showing fabrication caught | ANTHROPIC_API_KEY (demo needs none) | ships now |
+| 3 — drive | `/mbse` orchestrator live in Claude Code — the interview prop | Claude Code | ships now |
+
+### Tier 2 — human-gated LLM layers
+
+Two LLM-assisted layers can add to the model: prose ingest reads specification PDFs for candidate
+requirements, and inference proposes trace relationships. Both *propose, never write*. Each
+candidate arrives with a citation, and it enters the model only through an explicit human approval
+recorded by `/mbse-approve` — the code has no path that writes an approval, and a source-scanning
+ratchet test fails if one is ever added. This is the anti-fabrication contract of the trust story
+carried into the LLM tier: the four rules behind it are written up in
+[docs/gate-pattern.md](docs/gate-pattern.md).
+
+The visible proof is the seeded-defect harness. `pnpm demo:seeded` plants three known defects with
+fixed ids into a copy of the clean ANGARS build and shows each gate catch its own — a missing
+provenance finding, a non-zero grammar-validator exit on a poisoned file, and an R4 def-operand
+finding — alongside a clean control that must report zero errors. It runs in CI and needs no API
+key. `ANTHROPIC_API_KEY` is required only for *live* candidate generation from a corpus; the demo
+and the harness are deterministic without it.
+
+#### Gap-driven weave passes
+
+Once the model has a shape, the weaver closes completeness gaps in bounded passes. `pnpm weave`
+runs one pass over a project and then *stops for the human* — it proposes, it never approves:
 
 ```bash
-pnpm build
+pnpm weave --project <dir>              # open a pass: audit → queue → propose → STOP
+# ...review + approve the proposals in the review UI...
+pnpm weave --project <dir> --close-pass # recompose → re-audit → record + convergence gate
 ```
 
-### 3. (Optional) Anthropic API key
+A pass is **audit → queue → propose → (human reviews) → recompose → re-audit → record**:
 
-The **inference** and **prose-ingest** layers call the Anthropic API. Set a key only if you
-use those layers:
+1. `audit()` runs on the composed model. Each completeness finding is mapped to a targeted
+   retrieval query by an explicit, unit-tested table: `GATE02-unsatisfied` → a satisfy-family
+   query from the requirement's name+text; `GATE02-orphan` → an allocation-family query for the
+   element; `GATE02-uncovered-need` → a derive-family query. A finding with no query strategy is
+   **reported, never silently skipped**.
+2. A **bounded** targeted inference pass runs over only those queries (the budget cap and the
+   per-query entity scope are logged — no silent caps). It enumerates cross-document candidates
+   over the entity store and attributes each queued candidate back to the gap element it targets.
+3. Proposals land in the **normal review queue** (`<dir>/candidates/inference-candidates.json`).
+   The pass then stops. **`weave` writes no disposition** — approving a proposal is a human act in
+   the review UI, and a source-scan test fails if any weave code path ever calls an approval
+   writer.
+4. `--close-pass` recomposes the model with whatever was approved, re-audits, and writes
+   `<dir>/passes/pass-NNN.json` (`sysml-foundry/pass-record@1`) with six fields: `auditBefore`,
+   `queries`, `candidatesProposed`, `dispositionsApplied`, `auditAfter`, `warningsDelta`.
+5. **Convergence is a hard gate.** A closed pass must end with zero error-severity findings and may
+   never end with more errors than it began — either violation is a non-zero exit. The
+   completeness-*warning* delta per rule id is the soft signal: reported in the record, not gated,
+   because a legitimately growing model creates new orphans and the record makes that trend
+   inspectable instead of pretending monotonicity.
+
+With no provider key the pass uses a deterministic mock provider, so the loop — and its
+convergence gate — runs end-to-end in CI without a key; a key is needed only for model-authored
+proposals. Set `OPENROUTER_API_KEY` to use GLM via OpenRouter (model from `OPENROUTER_MODEL`,
+default `z-ai/glm-5.2`), or `ANTHROPIC_API_KEY` for Claude; OpenRouter takes precedence when both
+are set.
+
+#### Review UI
 
 ```bash
-cp .env.example .env
-# set ANTHROPIC_API_KEY=sk-ant-...
+pnpm review
 ```
 
-The core authoring path (skills + MCP store + serializer + validator) needs no API key.
+serves a local page for working the gate: the ANGARS candidate queue (319 prose candidates with
+their citations, 133 inference proposals with premises and confidence) with a detail pane and
+explicit approve/reject buttons. It writes the same disposition records as `/mbse-approve` —
+literally the same writer functions, and an equivalence test proves an approval made in the UI
+composes identically to one made through the skill (the content-addressed entry ids match). The
+source-scanning ratchet covers the UI's write surface too: any new code path that writes an
+approval fails the suite until reviewed.
 
-### 4. Configure Claude Code
-
-Add the server to your `.mcp.json`. The default file-native backend needs no endpoint:
-
-```json
-{
-  "mcpServers": {
-    "sysml-bridge": {
-      "command": "node",
-      "args": ["packages/mcp-server/dist/index.js"]
-    }
-  }
-}
-```
-
-To target a live SysML v2 REST API instead, add
-`"env": { "SYSML_BRIDGE_BACKEND": "smaps", "SMAPS_ENDPOINT": "http://localhost:9000" }`.
-
-### 5. Use the skills
-
-```
-/mbse-init
-> Describe your system: "Autonomous aerial refueling control subsystem..."
-
-/mbse-requirements      # requirements + needs with provenance
-/mbse-build bdd         # part definitions for subsystems
-/mbse-trace             # satisfy / allocate / verify edges
-/mbse-validate          # binary gate: every requirement satisfied AND verified
-```
-
-## The validation gate
-
-Models are not claimed to import until the local grammar validator passes. The authoritative
-workflow (see [CLAUDE.md](CLAUDE.md)):
-
-1. Edit the serializer — `packages/mcp-server/src/utils/sysml-serializer.ts`
-2. Regenerate — `pnpm tsx scripts/generate-cc-model.ts`
-3. Validate — **must report 0 errors:**
-   ```bash
-   pnpm validate:sysml examples/angars/model/cc-subsystem.sysml
-   ```
-4. **Only then** import to Cameo.
-
-A non-zero result at step 3 stops the gate — fix the syntax from the vendored grammar in
-[docs/sysml-v2-reference/](docs/sysml-v2-reference/), never by guessing, and rerun from step 2.
-
-Run the unit tests when you touch serializer or generator code:
-`pnpm --filter mcp-server test`.
-
-Want one command that proves the gate holds at breadth? `pnpm stress:sysml` builds dozens of
-diverse and deliberately hostile models (reserved-keyword names, embedded quotes, deep nesting,
-every SysML aspect), serializes each, and asserts **every one passes the grammar validator**. It
-exits non-zero if any model would fail to import — a CI-ready guard on the core claim.
-
-## Importing into Cameo
-
-The local validator checks **grammar**; Cameo is the binding **semantic** gate. To materialize
-a validated `.sysml` file:
-
-1. New Project → **SysML v2 Project**.
-2. Right-click the `[Model]` node → **Open** the Textual Editor.
-3. Paste the `.sysml` text → press **Alt+S (Synchronize)** → OK. *(`Cmd+S` only saves the
-   project; it does not create model elements.)*
-4. To diagram: right-click an element → **Create View** → pick a symbolic view (General ≈ BDD,
-   Interconnection ≈ IBD, Action Flow ≈ activity, State Transition ≈ state machine) → **Display**
-   parts/actions → **Display Connectors**.
-
-Cameo CE caps a project at ~500 "major elements," so the serializer emits a **lean, usages-only**
-projection rather than duplicating definitions and usages.
-
-## Tools
-
-- **`tools/sysml-validator/`** — in-repo grammar validator. A committed Python ANTLR parser
-  (from the vendored OMG `.g4`) checks `.sysml` syntax with no Java needed at runtime. Run via
-  `pnpm validate:sysml <file>` or `tools/sysml-validator/run.sh <file>`.
-- **`tools/decisym-viewer/`** — a cross-platform (Rust + egui) SysML v2 viewer and figure
-  exporter. `pnpm render:views <input.sysml> <out-dir> [--spec views.json] [--png]` produces
-  static PDF/PNG diagrams. See [tools/decisym-viewer/README.md](tools/decisym-viewer/README.md).
-
-## Example: ANGARS
-
-[`examples/angars/`](examples/angars/) is the end-to-end demo — a real Aerial-refueling
-Command & Control subsystem rebuilt through the tool. It contains the source corpus
-(spreadsheets + specs), the extracted IR (`extracted.json`), generated `.sysml`, prose/inferred
-candidate and approval records, traceability audits, rendered diagrams (BDD, IBD, activity,
-state, traceability), and a [CAMEO-HANDOFF.md](examples/angars/CAMEO-HANDOFF.md) import guide.
-The C&C subsystem (requirements + parts + actions + verification + trace) materializes fully in
-Cameo with 100% traceability fidelity.
-
-## Project structure
+## Layout
 
 ```
 sysml-bridge/
 ├── packages/
-│   ├── mcp-server/     # MCP server — file-native store, serializer, parser, 11 tools
-│   ├── ir/             # canonical extracted.json contract (zod) + three-layer composeIR
-│   ├── prose-ingest/   # PDF → chunk → LLM requirement detection → candidates (human-gated)
-│   ├── inference/      # F8 engine — candidate gen → type gate → propose → debate (human-gated)
-│   └── skills/         # 15 Claude Code MBSE skills
+│   ├── model/            # element/relationship types, FileStore, IR schema + composeIR
+│   ├── sysml/            # model ↔ SysML v2 textual notation: serializer, parser, validator glue
+│   ├── gates/            # Gate 1 audits: provenance, relational, fidelity
+│   ├── candidates/       # human-gated LLM layers: prose ingest + inference (propose, never write)
+│   ├── mcp-server/       # 11 MCP tools over the model store + lifecycle session tracker
+│   ├── review-ui/        # local web page for the human gate (same writers as /mbse-approve)
+│   └── skills/           # /mbse orchestrator + verb skills (drift-checked against the tools)
 ├── tools/
-│   ├── sysml-validator/  # local ANTLR grammar validator (committed Python parser)
-│   └── decisym-viewer/   # Rust/egui viewer + static figure exporter
-├── scripts/            # generators, extractors, e2e proofs, review/disposition helpers
-├── examples/angars/    # end-to-end ANGARS C&C demo (corpus → model → Cameo)
-└── docs/               # design notes + vendored SysML v2 grammar reference
+│   ├── sysml-validator/  # committed ANTLR grammar validator (Gate 2) + positive controls
+│   └── viewer/           # DeciSym fork — reads .sysml, exports headless PDF/PNG
+├── examples/angars/      # committed corpus, extracted IR, pipeline scripts, generated out/
+├── docs/
+│   ├── sysml-v2-reference/  # vendored SysML v2 grammar (.g4, MIT) + cheatsheet
+│   └── gallery/             # committed render copies referenced by this README
+└── .github/workflows/ci.yml
 ```
-
-## Security
-
-- The **MCP server has full read/write access to your local model files** — treat it like any
-  tool that can edit your repo.
-- The **inference** and **prose-ingest** layers send model and corpus content to the **Anthropic
-  API**. Do not ingest material you are not permitted to send to a third-party LLM.
-- Cameo is driven locally; nothing here exposes a network service.
 
 ## License
 
-[MIT](LICENSE)
+MIT — see [LICENSE](LICENSE).

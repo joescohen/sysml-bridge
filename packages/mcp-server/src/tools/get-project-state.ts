@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ModelStore } from "../store.js";
+import type { ModelStore } from "@sysml-bridge/model";
 
 export function registerGetProjectState(server: McpServer, smaps: ModelStore) {
   server.tool(

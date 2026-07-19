@@ -1,0 +1,32 @@
+{
+  "name": "@sysml-bridge/model",
+  "version": "0.1.0",
+  "description": "Model core: IR contract (zod) + ModelStore interface + FileStore",
+  "author": "Joe Cohen",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joescohen/sysml-bridge.git",
+    "directory": "packages/model"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

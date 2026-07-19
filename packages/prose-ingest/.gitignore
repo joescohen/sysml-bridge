@@ -1,7 +1,0 @@
-dist/
-node_modules/
-*.tsbuildinfo
-# Extracted corpus text must never be committed (corpus privacy)
-extracted-text/
-*.extracted.txt
-*.corpus.txt

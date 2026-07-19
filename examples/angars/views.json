@@ -1,0 +1,32 @@
+[
+  {
+    "file_stem": "angars-general-subsystem",
+    "context_name": "C&C Subsystem",
+    "frame_label": "general",
+    "kind": "general"
+  },
+  {
+    "file_stem": "angars-interconnection-subsystem",
+    "context_name": "C&C Subsystem",
+    "frame_label": "interconnection",
+    "kind": "interconnection"
+  },
+  {
+    "file_stem": "angars-general-operations",
+    "context_name": "C&C Operations",
+    "frame_label": "general",
+    "kind": "general"
+  },
+  {
+    "file_stem": "angars-requirements",
+    "context_name": "C&C Requirements",
+    "frame_label": "requirements",
+    "kind": "requirements"
+  },
+  {
+    "file_stem": "angars-traceability",
+    "context_name": "C&C Trace",
+    "frame_label": "traceability",
+    "kind": "traceability"
+  }
+]

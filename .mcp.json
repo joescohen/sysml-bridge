@@ -2,10 +2,7 @@
   "mcpServers": {
     "sysml-bridge": {
       "command": "node",
-      "args": ["packages/mcp-server/dist/index.js"],
-      "env": {
-        "SMAPS_ENDPOINT": "http://localhost:9000"
-      }
+      "args": ["packages/mcp-server/dist/index.js"]
     }
   }
 }
