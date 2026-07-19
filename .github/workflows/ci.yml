@@ -9,37 +9,72 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
         node-version: [20, 22]
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Set up Python (SysML grammar validator)
-        uses: actions/setup-python@v5
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-
-      - name: Set up SysML validator venv
+      - name: Set up validator venv
         run: |
           python -m venv .venv
           .venv/bin/pip install -r tools/sysml-validator/requirements.txt
+      - run: pnpm build
+      - run: pnpm test
+      - name: Skill → tool drift check
+        run: pnpm check:skills
+      - name: MCP stdio smoke (full lifecycle)
+        run: pnpm smoke:mcp
+      - name: Grammar gate positive controls
+        run: |
+          pnpm validate:sysml tools/sysml-validator/fixtures/smoke-good.sysml
+          if pnpm validate:sysml tools/sysml-validator/fixtures/smoke-bad.sysml; then
+            echo "POSITIVE CONTROL FAILED: bad fixture passed the validator" >&2
+            exit 1
+          fi
 
-      - name: Build
-        run: pnpm build
+  viewer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.96.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/viewer
+      - name: Build viewer
+        run: cargo build --release --bin export_figures
+        working-directory: tools/viewer
+      - name: Smoke render
+        run: |
+          tools/viewer/render.sh tools/viewer/fixtures/render-smoke.sysml /tmp/render-smoke
+          test -n "$(find /tmp/render-smoke -name '*.pdf' -size +0c)"
 
-      - name: Test
-        run: pnpm test
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.96.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/viewer
+      - name: Install
