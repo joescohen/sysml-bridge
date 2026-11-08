@@ -404,9 +404,22 @@ impl Store {
         out
     }
 
-    /// Map a workspace-relative path to disk. Only the canonical form from `canon_path` is accepted.
+    /// Map a workspace-relative path to disk. Only the canonical form from `canon_path` is accepted, and no folder on
+    /// the way may be a symlink: `canon_path` refuses `..` by spelling, and this keeps a linked folder from leading a
+    /// read, write or delete out of the workspace. (A final link is refused by `read_plain`, and a write or delete acts on
+    /// the link itself, not its target.)
     fn resolve(&self, rel: &str) -> Result<PathBuf, String> {
-        Ok(self.root.join(canon_path(rel)?))
+        let canon = canon_path(rel)?;
+        let mut p = self.root.clone();
+        let segs: Vec<&str> = canon.split('/').collect();
+        for seg in &segs[..segs.len() - 1] {
+            p.push(seg);
+            if std::fs::symlink_metadata(&p).map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+                return Err(format!("invalid path '{rel}': the folder '{seg}' is a symlink. Use a real folder inside the workspace."));
+            }
+        }
+        p.push(segs[segs.len() - 1]);
+        Ok(p)
     }
 
     /// True when a file is on disk, even if it cannot be read as text.
@@ -477,5 +490,32 @@ impl Store {
         let p = self.resolve(rel)?;
         std::fs::remove_file(&p).map_err(|_| format!("no file '{rel}'"))?;
         Ok(())
+    }
+}
+
+#[cfg(all(test, unix))]
+mod symlink_tests {
+    use super::Store;
+
+    #[test]
+    fn a_symlinked_folder_cannot_lead_a_write_read_or_delete_out_of_the_workspace() {
+        let base = std::env::temp_dir().join(format!("sysml-store-link-{}", std::process::id()));
+        let (ws, outside) = (base.join("ws"), base.join("outside"));
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("victim.sysml"), "package V;").unwrap();
+        std::os::unix::fs::symlink(&outside, ws.join("models")).unwrap();
+        let store = Store::new(ws.clone());
+
+        assert!(store.write("models/evil.sysml", "package E;").unwrap_err().contains("symlink"));
+        assert!(!outside.join("evil.sysml").exists(), "the write must not land outside the workspace");
+        assert!(store.read("models/victim.sysml").unwrap_err().contains("symlink"));
+        assert!(store.delete("models/victim.sysml").unwrap_err().contains("symlink"));
+        assert!(outside.join("victim.sysml").exists(), "the delete must not reach outside the workspace");
+
+        // A real folder still works.
+        store.write("real/ok.sysml", "package Ok;").unwrap();
+        assert_eq!(store.read("real/ok.sysml").unwrap(), "package Ok;");
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
