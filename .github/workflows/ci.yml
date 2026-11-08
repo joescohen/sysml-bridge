@@ -59,6 +59,28 @@ jobs:
           tools/viewer/render.sh tools/viewer/fixtures/render-smoke.sysml /tmp/render-smoke
           test -n "$(find /tmp/render-smoke -name '*.pdf' -size +0c)"
 
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.96.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and test the SysML v2 engine
+        run: cargo test --workspace
+      - name: Check gate positive control (a bad file must fail)
+        run: |
+          cargo build -p sysml-check
+          if target/debug/sysml-check crates/sysml-conform/tests/bad; then
+            echo "POSITIVE CONTROL FAILED: bad fixtures passed the checker" >&2
+            exit 1
+          fi
+      - name: Public-content deny list
+        run: |
+          scripts/check-public-content.sh --self-test
+          scripts/check-public-content.sh
+
   demo:
     runs-on: ubuntu-latest
     steps:
@@ -78,3 +100,28 @@ jobs:
         with:
           workspaces: tools/viewer
       - name: Install
+        run: |
+          pnpm install --frozen-lockfile
+          python -m venv .venv
+          .venv/bin/pip install -r tools/sysml-validator/requirements.txt
+          sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: Build viewer
+        run: cargo build --release --bin export_figures
+        working-directory: tools/viewer
+      - name: Run the Tier-1 demo (no API key)
+        run: pnpm demo
+        env:
+          ANTHROPIC_API_KEY: ""
+      - name: Seeded-defect eval — every gate catches its planted defect (no API key)
+        run: pnpm demo:seeded
+        env:
+          ANTHROPIC_API_KEY: ""
+      - name: README image integrity
+        run: |
+          grep -oE '\]\(([^)]+\.(png|pdf|svg))\)' README.md | sed 's/](//;s/)//' | while read -r img; do
+            test -f "$img" || { echo "MISSING: $img"; exit 1; }
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: angars-renders
+          path: examples/angars/out/renders/

@@ -1,0 +1,47 @@
+# file	line	column	found
+01-end-ref-part.sysml	3	17	part
+02-readonly-word.sysml	3	18	attribute
+03-prefix-order-abstract-in.sysml	3	18	in
+04-prefix-order-ref-abstract.sysml	3	13	abstract
+05-prefix-order-def-abstract.sysml	2	10	abstract
+06-reserved-word-as-name.sysml	3	10	state
+07-reserved-word-as-def-name.sysml	2	14	part
+08-missing-semicolon.sysml	4	5	part
+09-unclosed-brace.sysml	5	1	end of file
+10-extra-closing-brace.sysml	4	1	}
+11-multiplicity-open-range.sysml	3	20	]
+12-multiplicity-comma.sysml	3	18	,
+13-multiplicity-no-lower.sysml	3	17	..
+14-multiplicity-twice.sysml	3	16	[
+15-connect-missing-end.sysml	4	18	;
+16-bind-missing-end.sysml	3	14	;
+17-flow-missing-end.sysml	3	22	;
+18-allocate-missing-end.sysml	3	19	;
+19-succession-missing-end.sysml	3	18	;
+20-dependency-missing-end.sysml	3	26	;
+21-specialization-missing-end.sysml	2	19	;
+22-typing-missing-end.sysml	2	14	;
+23-redefinition-missing-end.sysml	4	20	;
+24-import-no-visibility.sysml	2	5	import
+25-transition-empty.sysml	4	19	;
+26-value-missing-expression.sysml	2	19	;
+27-expression-missing-operand.sysml	2	23	;
+28-expression-unclosed-paren.sysml	2	25	;
+29-real-with-no-fraction.sysml	2	21	;
+30-enum-body-holds-part.sysml	4	9	part
+31-def-with-no-kind.sysml	2	5	def
+32-kind-keyword-twice.sysml	2	10	part
+33-visibility-twice.sysml	2	13	private
+34-doc-with-no-comment.sysml	3	13	about
+35-alias-with-no-target.sysml	3	12	;
+36-comment-about-nothing.sysml	3	19	;
+37-assign-with-equals.sysml	4	18	=
+38-accept-with-no-payload.sysml	3	15	;
+39-satisfy-with-no-requirement.sysml	3	13	by
+40-require-with-no-constraint.sysml	3	16	;
+41-use-def-without-case.sysml	2	9	def
+42-unclosed-string.sysml	2	19	"abc;
+43-unclosed-quoted-name.sysml	2	10	'my part;
+44-unclosed-comment.sysml	2	5	/* note...
+45-stray-character.sysml	2	12	§
+46-name-starts-with-digit.sysml	2	10	1

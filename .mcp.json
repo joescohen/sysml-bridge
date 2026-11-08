@@ -3,6 +3,10 @@
     "sysml-bridge": {
       "command": "node",
       "args": ["packages/mcp-server/dist/index.js"]
+    },
+    "sysml-engine": {
+      "command": "target/debug/sysml-bridge-engine",
+      "args": ["--workspace", "examples/weave-mini", "--stdio"]
     }
   }
 }

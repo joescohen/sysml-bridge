@@ -1,0 +1,24 @@
+[package]
+name = "sysml-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sysml-bridge-engine"
+path = "src/main.rs"
+
+[dependencies]
+sysml-core = { path = "../sysml-core" }
+sysml-conform = { path = "../sysml-conform" }
+sysml-check = { path = "../sysml-check" }
+serde.workspace = true
+serde_json.workspace = true
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+roxmltree = "0.20"

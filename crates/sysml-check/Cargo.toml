@@ -1,0 +1,24 @@
+[package]
+name = "sysml-check"
+version.workspace = true
+edition.workspace = true
+license = "MIT AND EPL-2.0"
+description = "The SysML v2 checker on its own: parser and gates, no server, no network, no writes"
+build = "build.rs"
+
+[lib]
+name = "sysml_check"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sysml-check"
+path = "src/main.rs"
+
+[dependencies]
+sysml-core = { path = "../sysml-core" }
+sysml-conform = { path = "../sysml-conform" }
+serde_json.workspace = true
+
+# The file reads go through openat with O_NOFOLLOW, one path step at a time, so no step of a path can be a link.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
