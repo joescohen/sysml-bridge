@@ -407,6 +407,7 @@ name = "sysml-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "libc",
  "roxmltree",
  "serde",
  "serde_json",

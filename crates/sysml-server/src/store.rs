@@ -120,12 +120,37 @@ fn is_stored(p: &Path) -> bool {
 /// The text of a file. A file that is not UTF-8 is still read, with U+FFFD where its bytes are not text: it is listed,
 /// every gate reports it (`lexer::NOT_TEXT`), and no edit may write it back (`writes::write_with`). Before, such a file
 /// was left out, so the gates passed on a model that did not hold it.
+/// A link is refused, so a link inside the workspace cannot expose a file outside it.
 pub fn read_text(p: &Path) -> Option<String> {
-    let bytes = std::fs::read(p).ok()?;
+    let bytes = read_bytes_no_link(p)?;
     Some(match String::from_utf8(bytes) {
         Ok(t) => t,
         Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
     })
+}
+
+/// The bytes of a regular file, or `None` for a link, a folder or a missing file. The file is opened without following
+/// a final link (O_NOFOLLOW on Unix), so the check and the read see the same file.
+fn read_bytes_no_link(p: &Path) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(not(unix))]
+    if std::fs::symlink_metadata(p).ok()?.file_type().is_symlink() {
+        return None;
+    }
+    let mut f = opts.open(p).ok()?;
+    if !f.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut b = Vec::new();
+    f.read_to_end(&mut b).ok()?;
+    Some(b)
 }
 
 impl Store {
@@ -133,7 +158,7 @@ impl Store {
     /// and not a U+FFFD in the text that `read_text` gives. A file that is valid UTF-8 and holds the character U+FFFD is
     /// text; it fails the gates until the character is removed, and every tool can still repair it.
     pub fn not_utf8(&self, rel: &str) -> bool {
-        self.resolve(rel).ok().and_then(|p| std::fs::read(p).ok()).map(|b| std::str::from_utf8(&b).is_err()).unwrap_or(false)
+        self.resolve(rel).ok().and_then(|p| read_bytes_no_link(&p)).map(|b| std::str::from_utf8(&b).is_err()).unwrap_or(false)
     }
 
     pub fn new(root: PathBuf) -> Self {
@@ -406,8 +431,8 @@ impl Store {
 
     /// Map a workspace-relative path to disk. Only the canonical form from `canon_path` is accepted, and no folder on
     /// the way may be a symlink: `canon_path` refuses `..` by spelling, and this keeps a linked folder from leading a
-    /// read, write or delete out of the workspace. (A final link is refused by `read_plain`, and a write or delete acts on
-    /// the link itself, not its target.)
+    /// read, write or delete out of the workspace. A final link is refused by `read_text` and never listed by `walk_to`;
+    /// a write or delete acts on the link itself, not its target.
     fn resolve(&self, rel: &str) -> Result<PathBuf, String> {
         let canon = canon_path(rel)?;
         let mut p = self.root.clone();
@@ -431,7 +456,8 @@ impl Store {
         self.walk_to(dir, 0, out);
     }
 
-    /// A link to a folder is not entered: two links to `.` would be 2^40 paths. Links to files are kept.
+    /// A link is never followed: a link to a folder is not entered (two links to `.` would be 2^40 paths), and a link to
+    /// a file is not listed, so no link can bring a file from outside the workspace into the model.
     fn walk_to(&self, dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         if depth > MAX_WALK_DEPTH {
             return;
@@ -443,10 +469,12 @@ impl Store {
             if hidden {
                 continue;
             }
-            let is_real_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let ft = e.file_type().ok();
+            let is_real_dir = ft.map(|t| t.is_dir()).unwrap_or(false);
+            let is_real_file = ft.map(|t| t.is_file()).unwrap_or(false);
             if is_real_dir {
                 self.walk_to(&p, depth + 1, out);
-            } else if (is_stored(&p) || (depth == 0 && p.file_name().is_some_and(|n| n == RENAMES_FILE))) && p.is_file() {
+            } else if (is_stored(&p) || (depth == 0 && p.file_name().is_some_and(|n| n == RENAMES_FILE))) && is_real_file {
                 out.push(p);
             }
         }
@@ -512,6 +540,12 @@ mod symlink_tests {
         assert!(store.read("models/victim.sysml").unwrap_err().contains("symlink"));
         assert!(store.delete("models/victim.sysml").unwrap_err().contains("symlink"));
         assert!(outside.join("victim.sysml").exists(), "the delete must not reach outside the workspace");
+
+        // A link to a file outside is neither read nor listed.
+        std::os::unix::fs::symlink(outside.join("victim.sysml"), ws.join("leak.sysml")).unwrap();
+        assert!(store.read("leak.sysml").is_err(), "a final link must not be read");
+        assert!(!store.not_utf8("leak.sysml"));
+        assert!(store.read_all().iter().all(|f| f.path != "leak.sysml"), "a link must not be listed");
 
         // A real folder still works.
         store.write("real/ok.sysml", "package Ok;").unwrap();
