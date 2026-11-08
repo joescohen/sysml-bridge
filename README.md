@@ -208,10 +208,21 @@ composes identically to one made through the skill (the content-addressed entry 
 source-scanning ratchet covers the UI's write surface too: any new code path that writes an
 approval fails the suite until reviewed.
 
+## Native engine
+
+`crates/` holds a Rust SysML v2 engine that treats the model text as the source of truth. Every
+write generates canonical text, goes through one edit engine, and is parsed again before it is
+saved. It has a resolver and semantic gates that go past grammar: they catch unresolved
+references, duplicate requirement ids and open trace chains that a grammar check passes. It also
+has an independent recogniser for the official OMG grammar and a 56-tool MCP server with dry runs,
+revisions, baselines and undo. `cargo test --workspace` runs its 587 tests. See
+[docs/engine.md](docs/engine.md).
+
 ## Layout
 
 ```
 sysml-bridge/
+├── crates/               # native SysML v2 engine: core, OMG grammar check, checker CLI, MCP server
 ├── packages/
 │   ├── model/            # element/relationship types, FileStore, IR schema + composeIR
 │   ├── sysml/            # model ↔ SysML v2 textual notation: serializer, parser, validator glue

@@ -1,0 +1,157 @@
+// Corrections to the official grammar files, in the same notation.
+//
+// A rule here replaces the rule of the same name in SysML-textual-bnf.kebnf or
+// KerML-textual-bnf.kebnf. Eleven exist because the release's own model files
+// do not pass the rule as written; AnnotatingElement, MetadataUsageDeclaration
+// and OwnedCrossFeature have other reasons. The comment directly above a rule
+// is its reason; `sysml-conform --grammar-report` prints it. The test
+// `every_correction_is_needed` fails when a correction changes no verdict.
+//
+// This file is ours (MIT), not part of the OMG release.
+
+// Official text: `'standard' 'library'`, with `standard` required.
+// The release's own example libraries start with `library package` alone.
+LibraryPackage =
+    ( isStandard ?= 'standard' )? 'library'
+    ( ownedRelationship += PrefixMetadataMember )*
+    PackageDeclaration PackageBody
+
+// Official text: the list has no AllocationDefinition, so `allocation def` has
+// no place in any body. The rule AllocationDefinition exists and the Systems
+// Library uses it (Allocations.sysml). It is added to the end of the list.
+DefinitionElement : Element =
+      Package
+    | LibraryPackage
+    | AnnotatingElement
+    | Dependency
+    | AttributeDefinition
+    | EnumerationDefinition
+    | OccurrenceDefinition
+    | IndividualDefinition
+    | ItemDefinition
+    | PartDefinition
+    | ConnectionDefinition
+    | FlowDefinition
+    | InterfaceDefinition
+    | PortDefinition
+    | ActionDefinition
+    | CalculationDefinition
+    | StateDefinition
+    | ConstraintDefinition
+    | RequirementDefinition
+    | ConcernDefinition
+    | CaseDefinition
+    | AnalysisCaseDefinition
+    | VerificationCaseDefinition
+    | UseCaseDefinition
+    | ViewDefinition
+    | ViewpointDefinition
+    | RenderingDefinition
+    | MetadataDefinition
+    | ExtendedDefinition
+    | AllocationDefinition
+
+// Official text: `RefPrefix Usage`, so `end x : T;` (an end with no kind
+// keyword) is valid only inside an interface. The Systems Library writes it in
+// connection definitions (Connections.sysml: `end source: Anything ...`).
+DefaultReferenceUsage : ReferenceUsage =
+    ( isEnd ?= 'end' )? RefPrefix Usage
+
+// Official text: the prefix starts with BasicUsagePrefix only, so `end` can
+// never come before `part`, `item`, `port`, `occurrence` and the other
+// occurrence keywords. The release's files use `end port p : P;`,
+// `end [0..1] item cart : ShoppingCart[1];` and `end occurrence source ...`.
+OccurrenceUsagePrefix : OccurrenceUsage =
+    ( EndUsagePrefix
+    | BasicUsagePrefix
+      ( isIndividual ?= 'individual' )?
+      ( portionKind = PortionKind )?
+    )
+    UsageExtensionKeyword*
+
+// Official text: `BasicUsagePrefix UsageDeclaration`, and UsageDeclaration can
+// match nothing. Once `end` may come before `part` (correction above), the
+// word `ref` alone would then pass as a whole cross feature, and
+// `end ref part x;` would be valid. A cross feature must declare something:
+// a name, a multiplicity or a specialization.
+OwnedCrossFeature : ReferenceUsage =
+    BasicUsagePrefix
+    ( '<' declaredShortName = NAME '>' ( declaredName = NAME )? FeatureSpecializationPart?
+    | declaredName = NAME FeatureSpecializationPart?
+    | FeatureSpecializationPart
+    )
+
+// Official text: `referencedFeature = [QualifiedName]` with no `.` after it,
+// so `flow from a.b to c.d;` (one name, a dot, the flow feature) cannot be
+// read. The release's files use that form everywhere.
+FlowEndSubsetting : ReferenceSubsetting =
+      referencedFeature = [QualifiedName] '.'
+    | referencedFeature = FeatureChainPrefix
+
+// Official text: `ActionUsageDeclaration? 'send'`, and ActionUsageDeclaration
+// has no `action` keyword, so `action a send x via p;` cannot be read. The
+// sibling rules (AcceptNodeDeclaration, SendNodeDeclaration, TerminateNode) use
+// ActionNodeUsageDeclaration, and so do the release's files.
+SendNode : SendActionUsage =
+    OccurrenceUsagePrefix ActionNodeUsageDeclaration? 'send'
+    ( ownedRelationship += NodeParameterMember SenderReceiverPart?
+    | ownedRelationship += EmptyParameterMember SenderReceiverPart )?
+    ActionBody
+
+// Official text: `'then' TargetSuccession`, and TargetSuccession itself holds
+// a `then`, so the text would be `entry; then then S;`. The release's files
+// write `entry; then S;`.
+EntryTransitionMember : FeatureMembership =
+    MemberPrefix
+    ( ownedRelatedElement += GuardedTargetSuccession
+    | 'then' ownedRelatedElement += TransitionSuccession
+    ) ';'
+
+// Official text: `'assert' ( 'not' ) 'satisfy'`, with `assert` and `not` both
+// required. The release's files write `satisfy r by p;`.
+SatisfyRequirementUsage =
+    OccurrenceUsagePrefix 'assert'? ( isNegated ?= 'not' )? 'satisfy'
+    ( ownedRelationship += OwnedReferenceSubsetting
+      FeatureSpecializationPart?
+    | 'requirement' UsageDeclaration )
+    ValuePart?
+    ( 'by' ownedRelationship += SatisfactionSubjectMember )?
+    RequirementBody
+
+// Official text: ActionBodyItem, which has no `return` member. Case, analysis
+// and verification definitions in the Systems Library declare their result
+// with `return` (Cases.sysml, VerificationCases.sysml).
+CaseBodyItem : Type =
+      CalculationBodyItem
+    | ownedRelationship += SubjectMember
+    | ownedRelationship += ActorMember
+    | ownedRelationship += ObjectiveMember
+
+// The SysML file does not define the body of a body expression, so the KerML
+// rule `'{' FunctionBodyPart '}'` would apply, and with it the KerML element
+// keywords, which are not SysML words. A SysML body expression holds SysML
+// members (`{ in ref w : WheelAssy; w.mass > 0 }`).
+ExpressionBody : Expression =
+    '{' CalculationBodyPart '}'
+
+// Official text: the last alternative is MetadataFeature, which the SysML file
+// does not define; the name would fall through to the KerML rule. The SysML
+// rule for `metadata` and `@` is MetadataUsage.
+AnnotatingElement =
+      Comment
+    | Documentation
+    | TextualRepresentation
+    | MetadataUsage
+
+// Official text: `( Identification ( ':' | 'typed' 'by' ) )?`. `typed` is a
+// KerML word and not in the SysML reserved-word list; SysML writes the same
+// thing as `defined by` (DEFINED_BY) everywhere else.
+MetadataUsageDeclaration : MetadataUsage =
+    ( Identification DEFINED_BY )?
+    ownedRelationship += OwnedFeatureTyping
+
+// Official text: `'enum'? Usage`, with no place for a `#Keyword` prefix. The
+// release's MetadataTest.sysml writes `#Security enum secret : Level = 2;`
+// inside an enumeration definition.
+EnumeratedValue : EnumerationUsage =
+    UsageExtensionKeyword* 'enum'? Usage

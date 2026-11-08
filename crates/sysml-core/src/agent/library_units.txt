@@ -1,0 +1,14 @@
+# The unit names (short and long) the official sysml.library declares at the top of SI and USCustomaryUnits,
+# read from Domain Libraries/Quantities and Units/{SI,USCustomaryUnits}.sysml; only names a bracket can hold as one
+# name. Cameo 2026x (build 2026.0.0-126) resolves exactly these: SI::kWh, SI::mV and SI::ms are not among them.
+[SI]
+g gram m metre kg kilogram s second A ampere K kelvin mol mole cd candela B byte Bd baud bit Bq becquerel C
+coulomb dB decibel dec decade E erlang F farad Gy gray H henry Hart hartley Hz hertz J joule lm lumen lx lux
+N newton nat o octet oct octave Pa pascal rad radian S siemens Sh shannon sr steradian Sv sievert T tesla V
+volt W watt Wb weber Ω ohm Å ångström b barn d day Da dalton eV electronvolt h hour min minute L litre tonne
+u ua var ° degree m² m³ m⁴ nm nanometre mm millimetre cm centimetre km kilometre mL millilitre mN millinewton
+kJ kilojoule MJ megajoule GJ gigajoule kW kilowatt °C °C_abs
+[USCustomaryUnits]
+bbl Btu_IT Btu_th Btu_mean Btu_39°F Btu_59°F Btu_60°F bu ch clo ft³ in³ mi³ yd³ °F °R floz ft foot footcandle
+footlambert ftHg ftH2O ft⁴ gal gi gr grain hp in inch inHg inH2O in⁴ kip knot microinch mil mi mile nmi oz
+ozf pk pica drypt liqpt pt lb lbf dryqt liqqt rd slug ft² in² mi² yd² tablespoon teaspoon AT yd yard

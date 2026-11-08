@@ -1,0 +1,13 @@
+[package]
+name = "sysml-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+roxmltree = "0.20"
+
+[dev-dependencies]
+sysml-conform = { path = "../sysml-conform" }

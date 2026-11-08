@@ -1,0 +1,3 @@
+package P {
+    def A;
+}

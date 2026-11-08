@@ -1,0 +1,1625 @@
+{
+  "chains": [
+    {
+      "gaps": [
+        {
+          "hop": "function",
+          "rule": "guide-function-missing",
+          "says": "no function (action) satisfies or refines G::need, so nothing says what the system does to meet it. The functions shown are those of keepMoist, one derive link away."
+        },
+        {
+          "hop": "interface",
+          "rule": "guide-signal-not-conveyed",
+          "says": "G::Moisture flows from function G::Grow::sense (part G::Probe) to function G::Grow::judge (part G::Brain), and no connection between those parts carries it. Connection G::Greenhouse::trunk joins the subsystems that hold the two parts (through field to cabinet), and neither its port definitions nor a flow on it name that item. It conveys Frame: the signal of the function flow is not an item conveyed on that connection."
+        },
+        {
+          "hop": "verification",
+          "rule": "requirement-not-verified",
+          "says": "no verification case verifies G::need."
+        }
+      ],
+      "interfaces": [
+        {
+          "basis": "implied",
+          "carries_item": false,
+          "connection": {
+            "context": {
+              "path": "G::Greenhouse::trunk",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Greenhouse"
+            },
+            "file": "m.sysml",
+            "kind": "connection",
+            "line": 102,
+            "ref": "G::Greenhouse::trunk",
+            "relationship": "connect"
+          },
+          "conveys": [
+            {
+              "by": "G::'moisture frame'",
+              "item": "G::Frame",
+              "kind": "item flow",
+              "line": 128
+            }
+          ],
+          "direction": "outputs",
+          "flow": {
+            "file": "m.sysml",
+            "kind": "flow",
+            "line": 59,
+            "ref": "G::Grow::$6",
+            "relationship": "flow"
+          },
+          "from_component": "G::Probe",
+          "from_function": "G::Grow::sense",
+          "from_pin": {
+            "context": {
+              "path": "G::Grow::sense::reading",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Grow::sense"
+            },
+            "direction": "out",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 51,
+            "ref": "G::Grow::sense::reading",
+            "typed_by": null
+          },
+          "function": "G::Sense",
+          "item": {
+            "attributes": [],
+            "file": "m.sysml",
+            "flows": [
+              {
+                "between": "functions",
+                "from_pin": "G::Grow::sense::reading",
+                "line": 59,
+                "ref": "G::Grow::$6",
+                "to_pin": "G::Grow::judge::reading"
+              }
+            ],
+            "kind": "item def",
+            "line": 7,
+            "ref": "G::Moisture"
+          },
+          "label": "a flow of the function, carried between the subsystems that hold the parts",
+          "ports": [
+            {
+              "conjugated": false,
+              "context": {
+                "path": "G::FieldUnit::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::FieldUnit"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 86,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::FieldUnit::bus",
+              "relationship": "typed by"
+            },
+            {
+              "conjugated": true,
+              "context": {
+                "path": "G::Cabinet::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::Cabinet"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 91,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::Cabinet::bus",
+              "relationship": "typed by"
+            }
+          ],
+          "relationship": "flow",
+          "through": {
+            "from": "G::Greenhouse::field",
+            "says": "through field to cabinet",
+            "to": "G::Greenhouse::cabinet"
+          },
+          "through_path": [],
+          "to_component": "G::Brain",
+          "to_function": "G::Grow::judge",
+          "to_pin": {
+            "context": {
+              "path": "G::Grow::judge::reading",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Grow::judge"
+            },
+            "direction": "in",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 54,
+            "ref": "G::Grow::judge::reading",
+            "typed_by": null
+          }
+        }
+      ],
+      "requirement": {
+        "file": "m.sysml",
+        "id": "N-1",
+        "kind": "requirement",
+        "line": 14,
+        "ref": "G::need",
+        "text": "The grower needs the beds kept moist.",
+        "values": []
+      }
+    },
+    {
+      "gaps": [
+        {
+          "hop": "function",
+          "rule": "guide-satisfy-missing",
+          "says": "no satisfy link: G::keepMoist reaches Sense only by a trace link, and nothing states that a function satisfies it. The chain goes on through that function."
+        },
+        {
+          "hop": "interface",
+          "rule": "guide-signal-not-conveyed",
+          "says": "G::Moisture flows from function G::Grow::sense (part G::Probe) to function G::Grow::judge (part G::Brain), and no connection between those parts carries it. Connection G::Greenhouse::trunk joins the subsystems that hold the two parts (through field to cabinet), and neither its port definitions nor a flow on it name that item. It conveys Frame: the signal of the function flow is not an item conveyed on that connection."
+        },
+        {
+          "hop": "verification",
+          "rule": "requirement-not-verified",
+          "says": "no verification case verifies G::keepMoist."
+        }
+      ],
+      "interfaces": [
+        {
+          "basis": "implied",
+          "carries_item": false,
+          "connection": {
+            "context": {
+              "path": "G::Greenhouse::trunk",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Greenhouse"
+            },
+            "file": "m.sysml",
+            "kind": "connection",
+            "line": 102,
+            "ref": "G::Greenhouse::trunk",
+            "relationship": "connect"
+          },
+          "conveys": [
+            {
+              "by": "G::'moisture frame'",
+              "item": "G::Frame",
+              "kind": "item flow",
+              "line": 128
+            }
+          ],
+          "direction": "outputs",
+          "flow": {
+            "file": "m.sysml",
+            "kind": "flow",
+            "line": 59,
+            "ref": "G::Grow::$6",
+            "relationship": "flow"
+          },
+          "from_component": "G::Probe",
+          "from_function": "G::Grow::sense",
+          "from_pin": {
+            "context": {
+              "path": "G::Grow::sense::reading",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Grow::sense"
+            },
+            "direction": "out",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 51,
+            "ref": "G::Grow::sense::reading",
+            "typed_by": null
+          },
+          "function": "G::Sense",
+          "item": {
+            "attributes": [],
+            "file": "m.sysml",
+            "flows": [
+              {
+                "between": "functions",
+                "from_pin": "G::Grow::sense::reading",
+                "line": 59,
+                "ref": "G::Grow::$6",
+                "to_pin": "G::Grow::judge::reading"
+              }
+            ],
+            "kind": "item def",
+            "line": 7,
+            "ref": "G::Moisture"
+          },
+          "label": "a flow of the function, carried between the subsystems that hold the parts",
+          "ports": [
+            {
+              "conjugated": false,
+              "context": {
+                "path": "G::FieldUnit::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::FieldUnit"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 86,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::FieldUnit::bus",
+              "relationship": "typed by"
+            },
+            {
+              "conjugated": true,
+              "context": {
+                "path": "G::Cabinet::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::Cabinet"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 91,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::Cabinet::bus",
+              "relationship": "typed by"
+            }
+          ],
+          "relationship": "flow",
+          "through": {
+            "from": "G::Greenhouse::field",
+            "says": "through field to cabinet",
+            "to": "G::Greenhouse::cabinet"
+          },
+          "through_path": [],
+          "to_component": "G::Brain",
+          "to_function": "G::Grow::judge",
+          "to_pin": {
+            "context": {
+              "path": "G::Grow::judge::reading",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Grow::judge"
+            },
+            "direction": "in",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 54,
+            "ref": "G::Grow::judge::reading",
+            "typed_by": null
+          }
+        }
+      ],
+      "requirement": {
+        "file": "m.sysml",
+        "id": "S-1",
+        "kind": "requirement",
+        "line": 17,
+        "ref": "G::keepMoist",
+        "text": "The house shall measure the moisture of each bed.",
+        "values": []
+      }
+    },
+    {
+      "gaps": [
+        {
+          "hop": "function",
+          "rule": "guide-function-missing",
+          "says": "no function (action) satisfies or refines G::closeOnLeak, so nothing says what the system does to meet it. The functions shown are those of keepMoist, one derive link away."
+        },
+        {
+          "hop": "interface",
+          "rule": "guide-signal-not-conveyed",
+          "says": "G::Moisture flows from function G::Grow::sense (part G::Probe) to function G::Grow::judge (part G::Brain), and no connection between those parts carries it. Connection G::Greenhouse::trunk joins the subsystems that hold the two parts (through field to cabinet), and neither its port definitions nor a flow on it name that item. It conveys Frame: the signal of the function flow is not an item conveyed on that connection."
+        },
+        {
+          "hop": "verification",
+          "rule": "requirement-not-verified",
+          "says": "no verification case verifies G::closeOnLeak."
+        }
+      ],
+      "interfaces": [
+        {
+          "basis": "implied",
+          "carries_item": false,
+          "connection": {
+            "context": {
+              "path": "G::Greenhouse::trunk",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Greenhouse"
+            },
+            "file": "m.sysml",
+            "kind": "connection",
+            "line": 102,
+            "ref": "G::Greenhouse::trunk",
+            "relationship": "connect"
+          },
+          "conveys": [
+            {
+              "by": "G::'moisture frame'",
+              "item": "G::Frame",
+              "kind": "item flow",
+              "line": 128
+            }
+          ],
+          "direction": "outputs",
+          "flow": {
+            "file": "m.sysml",
+            "kind": "flow",
+            "line": 59,
+            "ref": "G::Grow::$6",
+            "relationship": "flow"
+          },
+          "from_component": "G::Probe",
+          "from_function": "G::Grow::sense",
+          "from_pin": {
+            "context": {
+              "path": "G::Grow::sense::reading",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Grow::sense"
+            },
+            "direction": "out",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 51,
+            "ref": "G::Grow::sense::reading",
+            "typed_by": null
+          },
+          "function": "G::Sense",
+          "item": {
+            "attributes": [],
+            "file": "m.sysml",
+            "flows": [
+              {
+                "between": "functions",
+                "from_pin": "G::Grow::sense::reading",
+                "line": 59,
+                "ref": "G::Grow::$6",
+                "to_pin": "G::Grow::judge::reading"
+              }
+            ],
+            "kind": "item def",
+            "line": 7,
+            "ref": "G::Moisture"
+          },
+          "label": "a flow of the function, carried between the subsystems that hold the parts",
+          "ports": [
+            {
+              "conjugated": false,
+              "context": {
+                "path": "G::FieldUnit::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::FieldUnit"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 86,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::FieldUnit::bus",
+              "relationship": "typed by"
+            },
+            {
+              "conjugated": true,
+              "context": {
+                "path": "G::Cabinet::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::Cabinet"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 91,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::Cabinet::bus",
+              "relationship": "typed by"
+            }
+          ],
+          "relationship": "flow",
+          "through": {
+            "from": "G::Greenhouse::field",
+            "says": "through field to cabinet",
+            "to": "G::Greenhouse::cabinet"
+          },
+          "through_path": [],
+          "to_component": "G::Brain",
+          "to_function": "G::Grow::judge",
+          "to_pin": {
+            "context": {
+              "path": "G::Grow::judge::reading",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Grow::judge"
+            },
+            "direction": "in",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 54,
+            "ref": "G::Grow::judge::reading",
+            "typed_by": null
+          }
+        }
+      ],
+      "requirement": {
+        "file": "m.sysml",
+        "id": "S-2",
+        "kind": "requirement",
+        "line": 20,
+        "ref": "G::closeOnLeak",
+        "text": "The house shall close the valve when a bed leaks.",
+        "values": []
+      }
+    },
+    {
+      "gaps": [
+        {
+          "hop": "function",
+          "rule": "guide-function-missing",
+          "says": "no function (action) satisfies or refines G::housing, so nothing says what the system does to meet it."
+        },
+        {
+          "hop": "verification",
+          "rule": "requirement-not-verified",
+          "says": "no verification case verifies G::housing."
+        }
+      ],
+      "interfaces": [],
+      "requirement": {
+        "file": "m.sysml",
+        "id": "S-3",
+        "kind": "requirement",
+        "line": 23,
+        "ref": "G::housing",
+        "text": "The cabinet shall keep water out.",
+        "values": []
+      }
+    },
+    {
+      "gaps": [
+        {
+          "hop": "interface",
+          "rule": "guide-signal-not-conveyed",
+          "says": "G::Moisture flows from function G::Grow::sense (part G::Probe) to function G::Grow::judge (part G::Brain), and no connection between those parts carries it. Connection G::Greenhouse::trunk joins the subsystems that hold the two parts (through field to cabinet), and neither its port definitions nor a flow on it name that item. It conveys Frame: the signal of the function flow is not an item conveyed on that connection."
+        },
+        {
+          "hop": "verification",
+          "rule": "requirement-not-verified",
+          "says": "no verification case verifies G::irrigate."
+        }
+      ],
+      "interfaces": [
+        {
+          "basis": "implied",
+          "carries_item": false,
+          "connection": {
+            "context": {
+              "path": "G::Greenhouse::trunk",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Greenhouse"
+            },
+            "file": "m.sysml",
+            "kind": "connection",
+            "line": 102,
+            "ref": "G::Greenhouse::trunk",
+            "relationship": "connect"
+          },
+          "conveys": [
+            {
+              "by": "G::'moisture frame'",
+              "item": "G::Frame",
+              "kind": "item flow",
+              "line": 128
+            }
+          ],
+          "direction": "receives",
+          "flow": {
+            "file": "m.sysml",
+            "kind": "flow",
+            "line": 59,
+            "ref": "G::Grow::$6",
+            "relationship": "flow"
+          },
+          "from_component": "G::Probe",
+          "from_function": "G::Grow::sense",
+          "from_pin": {
+            "context": {
+              "path": "G::Grow::sense::reading",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Grow::sense"
+            },
+            "direction": "out",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 51,
+            "ref": "G::Grow::sense::reading",
+            "typed_by": null
+          },
+          "function": "G::Decide",
+          "item": {
+            "attributes": [],
+            "file": "m.sysml",
+            "flows": [
+              {
+                "between": "functions",
+                "from_pin": "G::Grow::sense::reading",
+                "line": 59,
+                "ref": "G::Grow::$6",
+                "to_pin": "G::Grow::judge::reading"
+              }
+            ],
+            "kind": "item def",
+            "line": 7,
+            "ref": "G::Moisture"
+          },
+          "label": "a flow of the function, carried between the subsystems that hold the parts",
+          "ports": [
+            {
+              "conjugated": false,
+              "context": {
+                "path": "G::FieldUnit::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::FieldUnit"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 86,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::FieldUnit::bus",
+              "relationship": "typed by"
+            },
+            {
+              "conjugated": true,
+              "context": {
+                "path": "G::Cabinet::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::Cabinet"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 91,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::Cabinet::bus",
+              "relationship": "typed by"
+            }
+          ],
+          "relationship": "flow",
+          "through": {
+            "from": "G::Greenhouse::field",
+            "says": "through field to cabinet",
+            "to": "G::Greenhouse::cabinet"
+          },
+          "through_path": [],
+          "to_component": "G::Brain",
+          "to_function": "G::Grow::judge",
+          "to_pin": {
+            "context": {
+              "path": "G::Grow::judge::reading",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Grow::judge"
+            },
+            "direction": "in",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 54,
+            "ref": "G::Grow::judge::reading",
+            "typed_by": null
+          }
+        },
+        {
+          "basis": "implied",
+          "carries_item": true,
+          "connection": {
+            "context": {
+              "path": "G::Greenhouse::feed",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Greenhouse"
+            },
+            "file": "m.sysml",
+            "kind": "connection",
+            "line": 104,
+            "ref": "G::Greenhouse::feed",
+            "relationship": "connect"
+          },
+          "conveys": [
+            {
+              "by": "G::'valve frame'",
+              "item": "G::ValveCmd",
+              "kind": "item flow",
+              "line": 136
+            }
+          ],
+          "delegated": {
+            "flows": [
+              {
+                "line": 60,
+                "ref": "G::Grow::$7"
+              },
+              {
+                "line": 79,
+                "ref": "G::Run::$5"
+              },
+              {
+                "line": 68,
+                "ref": "G::Water::$4"
+              }
+            ],
+            "says": "through parameter G::Grow::cmd, then G::Water::cmd",
+            "through": [
+              "G::Grow::cmd",
+              "G::Water::cmd"
+            ]
+          },
+          "direction": "outputs",
+          "flow": {
+            "file": "m.sysml",
+            "kind": "flow",
+            "line": 60,
+            "ref": "G::Grow::$7",
+            "relationship": "flow"
+          },
+          "from_component": "G::Brain",
+          "from_function": "G::Grow::judge",
+          "from_pin": {
+            "context": {
+              "path": "G::Grow::judge::cmd",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Grow::judge"
+            },
+            "direction": "out",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 55,
+            "ref": "G::Grow::judge::cmd",
+            "typed_by": null
+          },
+          "function": "G::Decide",
+          "item": {
+            "attributes": [],
+            "file": "m.sysml",
+            "flows": [
+              {
+                "between": "functions",
+                "from_pin": "G::Run::grow::cmd",
+                "line": 79,
+                "ref": "G::Run::$5",
+                "to_pin": "G::Run::water::cmd"
+              },
+              {
+                "between": "functions",
+                "from_pin": "G::Grow::judge::cmd",
+                "line": 60,
+                "ref": "G::Grow::$7",
+                "to_pin": "G::Water::open::cmd"
+              }
+            ],
+            "kind": "item def",
+            "line": 8,
+            "ref": "G::ValveCmd"
+          },
+          "label": "a flow of the function, carried between the subsystems that hold the parts",
+          "ports": [
+            {
+              "conjugated": true,
+              "context": {
+                "path": "G::Cabinet::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::Cabinet"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 91,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::Cabinet::bus",
+              "relationship": "typed by"
+            },
+            {
+              "conjugated": false,
+              "context": {
+                "path": "G::Yard::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::Yard"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 96,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::Yard::bus",
+              "relationship": "typed by"
+            }
+          ],
+          "relationship": "flow",
+          "through": {
+            "from": "G::Greenhouse::cabinet",
+            "says": "through cabinet to yard",
+            "to": "G::Greenhouse::yard"
+          },
+          "through_note": "the flow crosses a parameter of its behavior; the parameters are in delegated",
+          "through_path": [],
+          "to_component": "G::Valve",
+          "to_function": "G::Water::open",
+          "to_pin": {
+            "context": {
+              "path": "G::Water::open::cmd",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Water::open"
+            },
+            "direction": "in",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 65,
+            "ref": "G::Water::open::cmd",
+            "typed_by": null
+          }
+        },
+        {
+          "basis": "direct",
+          "connection": {
+            "context": {
+              "path": "G::Greenhouse::trunk",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Greenhouse"
+            },
+            "file": "m.sysml",
+            "kind": "connection",
+            "line": 102,
+            "ref": "G::Greenhouse::trunk",
+            "relationship": "connect"
+          },
+          "conveys": [
+            {
+              "by": "G::'moisture frame'",
+              "item": "G::Frame",
+              "kind": "item flow",
+              "line": 128
+            }
+          ],
+          "declared_at": {
+            "file": "m.sysml",
+            "line": 121,
+            "relationship": "allocate",
+            "statement": "G::$32"
+          },
+          "function": "G::Decide",
+          "item": null,
+          "label": "a connection allocated to the function",
+          "ports": [
+            {
+              "conjugated": false,
+              "context": {
+                "path": "G::FieldUnit::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::FieldUnit"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 86,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::FieldUnit::bus",
+              "relationship": "typed by"
+            },
+            {
+              "conjugated": true,
+              "context": {
+                "path": "G::Cabinet::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::Cabinet"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 91,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::Cabinet::bus",
+              "relationship": "typed by"
+            }
+          ],
+          "relationship": "allocate",
+          "says": "connection trunk is allocated to this function"
+        }
+      ],
+      "requirement": {
+        "file": "m.sysml",
+        "id": "S-4",
+        "kind": "requirement",
+        "line": 26,
+        "ref": "G::irrigate",
+        "text": "The house shall decide when to water.",
+        "values": []
+      }
+    },
+    {
+      "gaps": [
+        {
+          "hop": "verification",
+          "rule": "requirement-not-verified",
+          "says": "no verification case verifies G::openValve."
+        }
+      ],
+      "interfaces": [
+        {
+          "basis": "implied",
+          "carries_item": true,
+          "connection": {
+            "context": {
+              "path": "G::Greenhouse::feed",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Greenhouse"
+            },
+            "file": "m.sysml",
+            "kind": "connection",
+            "line": 104,
+            "ref": "G::Greenhouse::feed",
+            "relationship": "connect"
+          },
+          "conveys": [
+            {
+              "by": "G::'valve frame'",
+              "item": "G::ValveCmd",
+              "kind": "item flow",
+              "line": 136
+            }
+          ],
+          "delegated": {
+            "flows": [
+              {
+                "line": 60,
+                "ref": "G::Grow::$7"
+              },
+              {
+                "line": 79,
+                "ref": "G::Run::$5"
+              },
+              {
+                "line": 68,
+                "ref": "G::Water::$4"
+              }
+            ],
+            "says": "through parameter G::Grow::cmd, then G::Water::cmd",
+            "through": [
+              "G::Grow::cmd",
+              "G::Water::cmd"
+            ]
+          },
+          "direction": "receives",
+          "flow": {
+            "file": "m.sysml",
+            "kind": "flow",
+            "line": 60,
+            "ref": "G::Grow::$7",
+            "relationship": "flow"
+          },
+          "from_component": "G::Brain",
+          "from_function": "G::Grow::judge",
+          "from_pin": {
+            "context": {
+              "path": "G::Grow::judge::cmd",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Grow::judge"
+            },
+            "direction": "out",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 55,
+            "ref": "G::Grow::judge::cmd",
+            "typed_by": null
+          },
+          "function": "G::Open",
+          "item": {
+            "attributes": [],
+            "file": "m.sysml",
+            "flows": [
+              {
+                "between": "functions",
+                "from_pin": "G::Run::grow::cmd",
+                "line": 79,
+                "ref": "G::Run::$5",
+                "to_pin": "G::Run::water::cmd"
+              },
+              {
+                "between": "functions",
+                "from_pin": "G::Grow::judge::cmd",
+                "line": 60,
+                "ref": "G::Grow::$7",
+                "to_pin": "G::Water::open::cmd"
+              }
+            ],
+            "kind": "item def",
+            "line": 8,
+            "ref": "G::ValveCmd"
+          },
+          "label": "a flow of the function, carried between the subsystems that hold the parts",
+          "ports": [
+            {
+              "conjugated": true,
+              "context": {
+                "path": "G::Cabinet::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::Cabinet"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 91,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::Cabinet::bus",
+              "relationship": "typed by"
+            },
+            {
+              "conjugated": false,
+              "context": {
+                "path": "G::Yard::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::Yard"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 96,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::Yard::bus",
+              "relationship": "typed by"
+            }
+          ],
+          "relationship": "flow",
+          "through": {
+            "from": "G::Greenhouse::cabinet",
+            "says": "through cabinet to yard",
+            "to": "G::Greenhouse::yard"
+          },
+          "through_note": "the flow crosses a parameter of its behavior; the parameters are in delegated",
+          "through_path": [],
+          "to_component": "G::Valve",
+          "to_function": "G::Water::open",
+          "to_pin": {
+            "context": {
+              "path": "G::Water::open::cmd",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Water::open"
+            },
+            "direction": "in",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 65,
+            "ref": "G::Water::open::cmd",
+            "typed_by": null
+          }
+        }
+      ],
+      "requirement": {
+        "file": "m.sysml",
+        "id": "S-5",
+        "kind": "requirement",
+        "line": 29,
+        "ref": "G::openValve",
+        "text": "The house shall open the valve on command.",
+        "values": []
+      }
+    },
+    {
+      "gaps": [
+        {
+          "hop": "verification",
+          "rule": "requirement-not-verified",
+          "says": "no verification case verifies G::grow."
+        }
+      ],
+      "interfaces": [
+        {
+          "basis": "implied",
+          "carries_item": true,
+          "connection": {
+            "context": {
+              "path": "G::Greenhouse::feed",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Greenhouse"
+            },
+            "file": "m.sysml",
+            "kind": "connection",
+            "line": 104,
+            "ref": "G::Greenhouse::feed",
+            "relationship": "connect"
+          },
+          "conveys": [
+            {
+              "by": "G::'valve frame'",
+              "item": "G::ValveCmd",
+              "kind": "item flow",
+              "line": 136
+            }
+          ],
+          "direction": "outputs",
+          "flow": {
+            "file": "m.sysml",
+            "kind": "flow",
+            "line": 79,
+            "ref": "G::Run::$5",
+            "relationship": "flow"
+          },
+          "from_component": "G::Brain",
+          "from_function": "G::Run::grow",
+          "from_pin": {
+            "context": {
+              "path": "G::Run::grow::cmd",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Run::grow"
+            },
+            "direction": "out",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 72,
+            "ref": "G::Run::grow::cmd",
+            "typed_by": null
+          },
+          "function": "G::Grow",
+          "item": {
+            "attributes": [],
+            "file": "m.sysml",
+            "flows": [
+              {
+                "between": "functions",
+                "from_pin": "G::Run::grow::cmd",
+                "line": 79,
+                "ref": "G::Run::$5",
+                "to_pin": "G::Run::water::cmd"
+              },
+              {
+                "between": "functions",
+                "from_pin": "G::Grow::judge::cmd",
+                "line": 60,
+                "ref": "G::Grow::$7",
+                "to_pin": "G::Water::open::cmd"
+              }
+            ],
+            "kind": "item def",
+            "line": 8,
+            "ref": "G::ValveCmd"
+          },
+          "label": "a flow of the function, carried between the subsystems that hold the parts",
+          "ports": [
+            {
+              "conjugated": true,
+              "context": {
+                "path": "G::Cabinet::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::Cabinet"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 91,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::Cabinet::bus",
+              "relationship": "typed by"
+            },
+            {
+              "conjugated": false,
+              "context": {
+                "path": "G::Yard::bus",
+                "says": "holds for this usage only, not for every use of its type",
+                "within": "G::Yard"
+              },
+              "direction": "inout",
+              "file": "m.sysml",
+              "kind": "port",
+              "line": 96,
+              "port_def": {
+                "features": [
+                  {
+                    "direction": "inout",
+                    "item": null,
+                    "line": 12,
+                    "name": "payload",
+                    "ref": "G::BusPort::payload"
+                  }
+                ],
+                "file": "m.sysml",
+                "kind": "port def",
+                "line": 11,
+                "ref": "G::BusPort"
+              },
+              "ref": "G::Yard::bus",
+              "relationship": "typed by"
+            }
+          ],
+          "relationship": "flow",
+          "through": {
+            "from": "G::Greenhouse::cabinet",
+            "says": "through cabinet to yard",
+            "to": "G::Greenhouse::yard"
+          },
+          "through_path": [],
+          "to_component": "G::Valve",
+          "to_function": "G::Run::water",
+          "to_pin": {
+            "context": {
+              "path": "G::Run::water::cmd",
+              "says": "holds for this usage only, not for every use of its type",
+              "within": "G::Run::water"
+            },
+            "direction": "in",
+            "file": "m.sysml",
+            "kind": "parameter",
+            "line": 75,
+            "ref": "G::Run::water::cmd",
+            "typed_by": null
+          }
+        }
+      ],
+      "requirement": {
+        "file": "m.sysml",
+        "id": "S-6",
+        "kind": "requirement",
+        "line": 32,
+        "ref": "G::grow",
+        "text": "The house shall run the growing cycle.",
+        "values": []
+      }
+    },
+    {
+      "gaps": [
+        {
+          "hop": "function",
+          "rule": "guide-function-missing",
+          "says": "no function (action) satisfies or refines G::grow::cycle, so nothing says what the system does to meet it."
+        },
+        {
+          "hop": "verification",
+          "rule": "requirement-not-verified",
+          "says": "no verification case verifies G::grow::cycle."
+        }
+      ],
+      "interfaces": [],
+      "requirement": {
+        "context": {
+          "path": "G::grow::cycle",
+          "says": "holds for this usage only, not for every use of its type",
+          "within": "G::grow"
+        },
+        "file": "m.sysml",
+        "id": "S-6.1",
+        "kind": "requirement",
+        "line": 34,
+        "ref": "G::grow::cycle",
+        "text": "The cycle shall repeat each hour.",
+        "values": []
+      }
+    }
+  ],
+  "reach": {
+    "rows": [
+      {
+        "component": true,
+        "component_by": [
+          "allocate"
+        ],
+        "connection": true,
+        "connection_by": [
+          "flow over a connection"
+        ],
+        "connection_names_item": false,
+        "file": "m.sysml",
+        "function": true,
+        "function_by": [
+          "derive"
+        ],
+        "gaps": 3,
+        "id": "N-1",
+        "kind": null,
+        "line": 14,
+        "name": "need",
+        "ref": "G::need",
+        "stops_at": {
+          "hop": "function",
+          "rule": "guide-function-missing"
+        },
+        "verification": false
+      },
+      {
+        "component": true,
+        "component_by": [
+          "allocate"
+        ],
+        "connection": true,
+        "connection_by": [
+          "flow over a connection"
+        ],
+        "connection_names_item": false,
+        "file": "m.sysml",
+        "function": true,
+        "function_by": [
+          "trace"
+        ],
+        "gaps": 3,
+        "id": "S-1",
+        "kind": null,
+        "line": 17,
+        "name": "keepMoist",
+        "ref": "G::keepMoist",
+        "stops_at": {
+          "hop": "function",
+          "rule": "guide-satisfy-missing"
+        },
+        "verification": false
+      },
+      {
+        "component": true,
+        "component_by": [
+          "allocate"
+        ],
+        "connection": true,
+        "connection_by": [
+          "flow over a connection"
+        ],
+        "connection_names_item": false,
+        "file": "m.sysml",
+        "function": true,
+        "function_by": [
+          "derive"
+        ],
+        "gaps": 3,
+        "id": "S-2",
+        "kind": null,
+        "line": 20,
+        "name": "closeOnLeak",
+        "ref": "G::closeOnLeak",
+        "stops_at": {
+          "hop": "function",
+          "rule": "guide-function-missing"
+        },
+        "verification": false
+      },
+      {
+        "component": true,
+        "component_by": [
+          "allocate"
+        ],
+        "connection": false,
+        "connection_by": [],
+        "connection_names_item": false,
+        "file": "m.sysml",
+        "function": false,
+        "function_by": [],
+        "gaps": 2,
+        "id": "S-3",
+        "kind": null,
+        "line": 23,
+        "name": "housing",
+        "ref": "G::housing",
+        "stops_at": {
+          "hop": "function",
+          "rule": "guide-function-missing"
+        },
+        "verification": false
+      },
+      {
+        "component": true,
+        "component_by": [
+          "allocate"
+        ],
+        "connection": true,
+        "connection_by": [
+          "flow over a connection",
+          "allocate"
+        ],
+        "connection_names_item": true,
+        "file": "m.sysml",
+        "function": true,
+        "function_by": [
+          "satisfy"
+        ],
+        "gaps": 2,
+        "id": "S-4",
+        "kind": null,
+        "line": 26,
+        "name": "irrigate",
+        "ref": "G::irrigate",
+        "stops_at": {
+          "hop": "interface",
+          "rule": "guide-signal-not-conveyed"
+        },
+        "verification": false
+      },
+      {
+        "component": true,
+        "component_by": [
+          "allocate"
+        ],
+        "connection": true,
+        "connection_by": [
+          "flow over a connection"
+        ],
+        "connection_names_item": true,
+        "file": "m.sysml",
+        "function": true,
+        "function_by": [
+          "satisfy"
+        ],
+        "gaps": 1,
+        "id": "S-5",
+        "kind": null,
+        "line": 29,
+        "name": "openValve",
+        "ref": "G::openValve",
+        "stops_at": {
+          "hop": "verification",
+          "rule": "requirement-not-verified"
+        },
+        "verification": false
+      },
+      {
+        "component": true,
+        "component_by": [
+          "rolled up"
+        ],
+        "connection": true,
+        "connection_by": [
+          "flow over a connection"
+        ],
+        "connection_names_item": true,
+        "file": "m.sysml",
+        "function": true,
+        "function_by": [
+          "satisfy"
+        ],
+        "gaps": 1,
+        "id": "S-6",
+        "kind": null,
+        "line": 32,
+        "name": "grow",
+        "ref": "G::grow",
+        "stops_at": {
+          "hop": "verification",
+          "rule": "requirement-not-verified"
+        },
+        "verification": false
+      },
+      {
+        "component": false,
+        "component_by": [],
+        "connection": false,
+        "connection_by": [],
+        "connection_names_item": false,
+        "file": "m.sysml",
+        "function": false,
+        "function_by": [],
+        "gaps": 2,
+        "id": "S-6.1",
+        "kind": null,
+        "line": 34,
+        "name": "cycle",
+        "ref": "G::grow::cycle",
+        "stops_at": {
+          "hop": "function",
+          "rule": "guide-function-missing"
+        },
+        "verification": false
+      }
+    ],
+    "totals": {
+      "component": 7,
+      "connection": 6,
+      "connection_names_item": 3,
+      "function": 6,
+      "verification": 0
+    },
+    "reach_all": 0,
+    "first_link_to_a_function": {
+      "derive": 2,
+      "none": 2,
+      "satisfy": 3,
+      "trace": 1
+    }
+  }
+}

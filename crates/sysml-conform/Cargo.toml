@@ -1,0 +1,19 @@
+[package]
+name = "sysml-conform"
+version.workspace = true
+edition.workspace = true
+# The Rust code is MIT. The files under grammar/ and tests/official/ come from the
+# OMG SysML v2 release and stay under the Eclipse Public License 2.0 (grammar/LICENSE).
+license = "MIT AND EPL-2.0"
+description = "Checks a .sysml file against the official OMG SysML v2 textual grammar, read as data"
+
+[lib]
+name = "sysml_conform"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sysml-conform"
+path = "src/main.rs"
+
+# No dependencies on purpose: the checker must stay independent of sysml-core.
+[dependencies]
